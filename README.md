@@ -8,5 +8,5 @@
     * 将API反馈的路段逐一合并，巧妙利用端点的情况
 - [ ] Image storage format: file or DB
 - [ ] 等距离抽点：
-
+- [X] 引入*args, **kwargs参数控制函数参数的输入
 
