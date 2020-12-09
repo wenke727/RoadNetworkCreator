@@ -4,12 +4,11 @@ from shapely.geometry import Point, LineString
 import os
 import pandas as pd
 from tqdm import tqdm
+from roadNetwork import map_visualize
 
 
 class OsmDownloader:
-
     def __init__(self, area):
-
         self.area = area
 
     def __search_for_osm_id__(self):
@@ -80,7 +79,6 @@ class OsmDownloader:
         print('数据导出成功！')
 
     def download_geojson(self, path=''):
-
         try:
             self.search_result
         except AttributeError:
@@ -101,4 +99,8 @@ class OsmDownloader:
 if __name__ == "__main__":
     downloader = OsmDownloader(area='深圳市') # area参数控制检索的行政区，请尽量准确填写
     downloader.download_geojson(path='./') # path参数控制文件保存的路径
-    pass
+
+    # TODO 数据分析
+    df = gpd.read_file('../input/深圳市_osm路网_道路.geojson')
+    map_visualize(df, scale=0.1, color = 'blue')
+

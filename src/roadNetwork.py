@@ -61,6 +61,51 @@ class Node:
         return True
 
 
+def map_visualize(df: gpd.GeoDataFrame, lyrs='y', scale=0.5, figsize = (12,9), color = "gray", ax = None, *args, **kwargs):
+    """Draw the geodataframe with the satellite image as the background
+
+    Args:
+        `df` (gpd.GeoDataFrame): the gpd.GeoDataFrame need to plot
+        `ax`: the ax define to draw
+        `lyrs` (str, optional): [ m 路线图; t 地形图; p 带标签的地形图; s 卫星图; y 带标签的卫星图; h 标签层（路名、地名等）]. Defaults to 'p'.
+        `scale` (float): border percentage
+        `color`: the color the the geometry drawed
+
+    Returns:
+        [ax]: [description]
+    """
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+    
+    df.plot(color = color, ax=ax, zorder=1)
+
+    [x0, x1], [y0, y1] = plt.xlim(), plt.ylim()
+    gap_x, gap_y = (x1-x0), (y1-y0)
+    if not 0.4 <= gap_y / gap_x <= 2.5:
+        mid_x, mid_y = (x1+x0)/2, (y1+y0)/2
+        gap = max(gap_x, gap_y) * (1 + scale) / 2
+        [x0, y0, x1, y1] = [mid_x - gap, mid_y - gap, mid_x + gap, mid_y + gap]
+    else:
+        [x0, y0, x1, y1] = [x0-(x1-x0) * scale, y0+(y0-y1) * scale,
+                            x1+(x1-x0) * scale, y1-(y0-y1) * scale]
+
+    zoom = 15 - int(math.log2(haversine((x0, y1), (x1, y0))/3))
+    zoom = 19 if zoom > 19 else zoom
+    img = tile.Tiles()
+    f_lst, img_bbox = img.get_tiles_by_bbox([x0, y1, x1, y0], zoom, lyrs)
+    to_image = merge_tiles(f_lst)
+    background, _ = clip_background(
+        to_image, img_bbox, [x0, y1, x1, y0], False)
+
+    ax.imshow(background, extent=[x0, x1, y0, y1], alpha=.6, zorder=0)
+    plt.xlim(x0, x1)
+    plt.ylim(y0, y1)
+    
+    # 去除科学记数法
+    ax.get_xaxis().get_major_formatter().set_useOffset(False)
+    ax.get_yaxis().get_major_formatter().set_useOffset(False)
+    return ax
+
 def reverse_shp(geometry):
     """
     Reverse the polyline (geometry)
@@ -78,7 +123,6 @@ def check_degree(id, graph):
         return id.val, id.indegree, id.outdegree, [x.val for x in id.prev], [x.val for x in id.nxt]
 
     return id, graph[id].indegree, graph[id].outdegree, [x.val for x in graph[id].prev], [x.val for x in graph[id].nxt]
-
 
 def traverse_road(origin, graph):
     """
@@ -119,7 +163,6 @@ def traverse_road(origin, graph):
 
     return res
 
-
 def query_road_by_OD(df_roads, lst):
     """Query roads by origin and destination
 
@@ -133,7 +176,6 @@ def query_road_by_OD(df_roads, lst):
     # segments = pd.DataFrame( [ (lst[i], lst[i+1]) for i in range( len(lst) - 1 ) ], columns=['start', 'end'] )
     segments = gpd.GeoDataFrame(lst, columns=['start', 'end'])
     return segments.merge(df_roads, on=['start', 'end'])
-
 
 def identify_reverse_road(prev_node, cur_node, df_roads):
     if not cur_node.check_0_out_more_2_in():
@@ -178,7 +220,6 @@ def identify_reverse_road(prev_node, cur_node, df_roads):
 
     identify_reverse_road(cur_node, nxt_node, df_roads)
 
-
 def traverse_road_consider_reverse_edge(origin, graph, df_roads):
     res = traverse_road(origin, graph)
     count = 1
@@ -194,7 +235,6 @@ def traverse_road_consider_reverse_edge(origin, graph, df_roads):
         if count >= 4:
             break
     return res, query_road_by_OD(df_roads, res)
-
 
 def extract_roads_info(df_roads):
     """
@@ -237,51 +277,6 @@ def calculate_adj_points_dis(df_origin, inplace=False):
     df = df_origin if inplace else df_origin.copy()
     df.loc[:, 'x1'], df.loc[:, 'y1'] = df.x.shift(1), df.y.shift(1)
     return df.apply(lambda i: haversine((i.y, i.x), (i.y1, i.x1))*1000, axis=1)
-
-def map_visualize(df: gpd.GeoDataFrame, lyrs='p', scale=0.5, figsize = (12,9), color = "gray", ax = None, *args, **kwargs):
-    """Draw the geodataframe with the satellite image as the background
-
-    Args:
-        `df` (gpd.GeoDataFrame): the gpd.GeoDataFrame need to plot
-        `ax`: the ax define to draw
-        `lyrs` (str, optional): [ m 路线图; t 地形图; p 带标签的地形图; s 卫星图; y 带标签的卫星图; h 标签层（路名、地名等）]. Defaults to 'p'.
-        `scale` (float): border percentage
-        `color`: the color the the geometry drawed
-
-    Returns:
-        [ax]: [description]
-    """
-    if ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=figsize)
-    
-    df.plot(color = color, ax=ax, zorder=1)
-
-    [x0, x1], [y0, y1] = plt.xlim(), plt.ylim()
-    gap_x, gap_y = (x1-x0), (y1-y0)
-    if not 0.4 <= gap_y / gap_x <= 2.5:
-        mid_x, mid_y = (x1+x0)/2, (y1+y0)/2
-        gap = max(gap_x, gap_y) * (1 + scale) / 2
-        [x0, y0, x1, y1] = [mid_x - gap, mid_y - gap, mid_x + gap, mid_y + gap]
-    else:
-        [x0, y0, x1, y1] = [x0-(x1-x0) * scale, y0+(y0-y1) * scale,
-                            x1+(x1-x0) * scale, y1-(y0-y1) * scale]
-
-    zoom = 15 - int(math.log2(haversine((x0, y1), (x1, y0))/3))
-    zoom = 19 if zoom > 19 else zoom
-    img = tile.Tiles()
-    f_lst, img_bbox = img.get_tiles_by_bbox([x0, y1, x1, y0], zoom, lyrs)
-    to_image = merge_tiles(f_lst)
-    background, _ = clip_background(
-        to_image, img_bbox, [x0, y1, x1, y0], False)
-
-    ax.imshow(background, extent=[x0, x1, y0, y1], alpha=.6, zorder=0)
-    plt.xlim(x0, x1)
-    plt.ylim(y0, y1)
-    
-    # 去除科学记数法
-    ax.get_xaxis().get_major_formatter().set_useOffset(False)
-    ax.get_yaxis().get_major_formatter().set_useOffset(False)
-    return ax
 
 def create_crawl_point(road_one_way: gpd.GeoDataFrame, geometry_type='point', visualize=False):
     """Extract all the points of the road and arrange them according to the spatial position

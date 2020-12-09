@@ -6,9 +6,11 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import LineString, Point
 from PIL import Image
+import yaml
+import os
 
-PANO_FOLDER = "../output/panos"
-DB_pano_base, DB_panos, DB_connectors, DB_roads = pd.DataFrame(), gpd.GeoDataFrame(), gpd.GeoDataFrame(), gpd.GeoDataFrame()
+config = yaml.load( open( os.path.join( os.path.dirname(__file__), 'config.yaml')) )
+pano_dir = config['data']['pano_dir']
 
 
 def get_road_shp_by_search_API(road_name):
@@ -25,6 +27,7 @@ def get_road_shp_by_search_API(road_name):
         return [ct.bd09_to_wgs84(*bd_mc_to_coord(float(line[i*2]), float(line[i*2+1]))) for i in range(len(line)//2)]
 
     url = f"https://map.baidu.com/?newmap=1&reqflag=pcmap&biz=1&from=webmap&da_par=direct&pcevaname=pc4.1&qt=s&da_src=searchBox.button&wd={urllib.parse.quote(road_name)}&c=340&src=0&wd2=&pn=0&sug=0&l=19&b=(12685428.325,2590847.5;12685565.325,2591337)&from=webmap&sug_forward=&auth=DFK98QE10QLPy1LTFybKvxyESGSRPVGWuxLVLxBVERNtwi04vy77uy1uVt1GgvPUDZYOYIZuVtcvY1SGpuEt2gz4yBWxUuuouK435XwK2vMOuUbNB9AUvhgMZSguxzBEHLNRTVtcEWe1aDYyuVt%40ZPuVteuRtlnDjnCER%40REERG%40EBfiKKvCCu1iifGOb&device_ratio=1&tn=B_NORMAL_MAP&nn=0&u_loc=12684743,2564601&ie=utf-8&t=1606130493139"
+    print(url)
     request = urllib.request.Request(url=url, method='GET')
     res = urllib.request.urlopen(request).read()
     json_data = json.loads(res)
@@ -44,33 +47,22 @@ def get_road_shp_by_search_API(road_name):
     df.loc[:, 'length'] = df.to_crs('epsg:3395').length
     return df, directions, ports.split(';')
 
-
-def get_staticimage(id, heading, folder = PANO_FOLDER):
-    """
-    @desc: get the static image by it's id and heading
-    @param: id, panoid
-    @param: heading, 0 ~ 360 
-    @return: imgae
-    """
-    # TODO the store form of image
-    print(f"id = {id}, heading = {heading}")
+def get_staticimage(id, heading, folder = pano_dir):
     file_name = f"{folder}/{id}.jpg"
     if os.path.exists(file_name):
-        # print('file exist')
-        return Image.open(file_name)
+        return False
 
+    # print(file_name)
     # id = "09005700121902131650290579U"; heading = 87
-    url = f"https://mapsv0.bdimg.com/?qt=pr3d&fovy=88&quality=100&panoid={id}&heading={heading}&pitch=0&width=1024&height=1024"
+    url = f"https://mapsv0.bdimg.com/?qt=pr3d&fovy=88&quality=100&panoid={id}&heading={heading}&pitch=9&width=1024&height=768"
     request = urllib.request.Request(url=url, method='GET')
     map = urllib.request.urlopen(request)
 
-    # print(file_name)
     f = open(file_name, 'wb')
     f.write(map.read())
     f.flush()
     f.close()
-    return Image.open(file_name)
-
+    return True
 
 
 def query_pano_detail(pano):
@@ -96,42 +88,7 @@ def query_pano_detail(pano):
     return {**pano, **res['content'][0]}
 
 
-def query_pano(x=None, y=None, panoid=None, visualize=True):
-    res = {}
-    if panoid is None:
-        url = f'https://mapsv0.bdimg.com/?qt=qsdata&x={x}&y={y}'
-        request = urllib.request.Request(url=url, method='GET')
-        res = urllib.request.urlopen(request).read()
-        json_data = json.loads(res)
-    
-        res = {'crawl_coord': str(x)+","+str(y)}
-        if 'content' in json_data:
-            panoid = json_data['content']['id']
-            res['pano_id'] = panoid
-            res['RoadName'] = json_data['content']['RoadName']
-            res['res_coord'] = ','.join([str(float(i)/100) for i in [json_data['content']['x'], json_data['content']['y']]])
-        else:
-            res['status'] = False
-            return None # TODO
-    
-    global DB_panos
-    if DB_panos.shape[0] > 0 and DB_panos.query( f"PID== '{panoid}' " ).shape[0] > 0:
-        return None
-
-    url = f"https://mapsv0.bdimg.com/?qt=sdata&sid={panoid}"
-    request = urllib.request.Request(url, method='GET')
-    pano_respond = json.loads(urllib.request.urlopen(request).read())
-    
-    nxt = pano_respond_parser({**res, **pano_respond['content'][0]}, add_to_DB=True, visualize=visualize)
-
-    return nxt
-
-
-
-
-
 # old version
-
 def query_pano_detail_by_coord(x, y, visualize=False):
     """
     query the nearby point by a special coordination
@@ -199,8 +156,6 @@ def query_pano_ID_by_coord(x, y):
         res['status'] = False
 
     return res
-
-
 
 
 if __name__ == '__main__':

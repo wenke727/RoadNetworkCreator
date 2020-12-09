@@ -1,6 +1,8 @@
 data:
   DB: postgresql://postgres:123456@192.168.135.16:5432/road_network
-  pano_dir: /pcl/Data/RoadNetworkCreator
+  pano_dir: /home/pcl/Data/minio_server/panos
+  input_dir: /home/pcl/Data/minio_server/input
+  pano_tile_dir: /home/pcl/Data/RoadNetworkCreator/tiles
 model:
   model_dir: data/model/HetETA_toy
   method: HetETA
