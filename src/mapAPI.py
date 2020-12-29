@@ -1,6 +1,6 @@
 import urllib
 import coordTransform_py.CoordTransform_utils as ct
-from coord.coord_transfer import bd_coord_to_mc, bd_mc_to_coord, bd_mc_to_wgs
+from utils.coord.coord_transfer import bd_coord_to_mc, bd_mc_to_coord, bd_mc_to_wgs
 import json
 import pandas as pd
 import geopandas as gpd
@@ -9,45 +9,13 @@ from PIL import Image
 import yaml
 import os
 
-config = yaml.load( open( os.path.join( os.path.dirname(__file__), 'config.yaml')) )
+config = yaml.load(
+    open(os.path.join(os.path.dirname(__file__), 'config.yaml')))
 pano_dir = config['data']['pano_dir']
+input_dir = config['data']['input_dir']
 
 
-def get_road_shp_by_search_API(road_name):
-    """get road shp by earcing API
-
-    Args:
-        road_name ([string]): eg: '光侨路'
-
-    Return:
-        gdf, directions, ports
-    """
-
-    def points_to_line(line):
-        return [ct.bd09_to_wgs84(*bd_mc_to_coord(float(line[i*2]), float(line[i*2+1]))) for i in range(len(line)//2)]
-
-    url = f"https://map.baidu.com/?newmap=1&reqflag=pcmap&biz=1&from=webmap&da_par=direct&pcevaname=pc4.1&qt=s&da_src=searchBox.button&wd={urllib.parse.quote(road_name)}&c=340&src=0&wd2=&pn=0&sug=0&l=19&b=(12685428.325,2590847.5;12685565.325,2591337)&from=webmap&sug_forward=&auth=DFK98QE10QLPy1LTFybKvxyESGSRPVGWuxLVLxBVERNtwi04vy77uy1uVt1GgvPUDZYOYIZuVtcvY1SGpuEt2gz4yBWxUuuouK435XwK2vMOuUbNB9AUvhgMZSguxzBEHLNRTVtcEWe1aDYyuVt%40ZPuVteuRtlnDjnCER%40REERG%40EBfiKKvCCu1iifGOb&device_ratio=1&tn=B_NORMAL_MAP&nn=0&u_loc=12684743,2564601&ie=utf-8&t=1606130493139"
-    print(url)
-    request = urllib.request.Request(url=url, method='GET')
-    res = urllib.request.urlopen(request).read()
-    json_data = json.loads(res)
-    res = pd.DataFrame(json_data['content'])
-    # res.query("di_tag == '道路' ")
-
-    # FIXME Maybe the road is not the first record
-    lines = json_data['content'][0]['profile_geo']
-    directions, ports, lines = lines.split('|')
-
-    df = pd.DataFrame(lines.split(';')[:-1], columns=['coords'])
-    df = gpd.GeoDataFrame(df, geometry=df.apply(
-        lambda x: LineString(points_to_line(x.coords.split(','))), axis=1))
-    df['start'] = df.apply(lambda x: ','.join(x.coords.split(',')[:2]), axis=1)
-    df['end'] = df.apply(lambda x: ','.join(x.coords.split(',')[-2:]), axis=1)
-    df.crs = "epsg:4326"
-    df.loc[:, 'length'] = df.to_crs('epsg:3395').length
-    return df, directions, ports.split(';')
-
-def get_staticimage(id, heading, folder = pano_dir):
+def get_staticimage(id, heading, folder=pano_dir):
     file_name = f"{folder}/{id}.jpg"
     if os.path.exists(file_name):
         return False
@@ -108,6 +76,7 @@ def query_pano_detail_by_coord(x, y, visualize=False):
         return info, df, True
     return info, None, False
 
+
 def query_pano_detail(pano):
     """
     query the nearby point by a special point id
@@ -129,6 +98,7 @@ def query_pano_detail(pano):
 
     # df.loc[:, 'root'] = id
     return {**pano, **res['content'][0]}
+
 
 def query_pano_ID_by_coord(x, y):
     """Query the the nearest static view ID at (x,y)
@@ -158,13 +128,95 @@ def query_pano_ID_by_coord(x, y):
     return res
 
 
+def traverse_panos_by_road_old(df_order_coords):
+    #TODO 变成反向遍历，links就可以用上
+    from collections import deque
+    queue = deque(list(df_order_coords[['id', 'coords']].values))
+
+    nxt_id = 0
+    while queue:
+        cur_id, cur_node = queue.popleft()
+        if nxt_id > cur_id:
+            continue
+        print( cur_id, nxt_id, cur_node )
+
+        respond, panos, nxt_maybe = query_pano( *cur_node, visualize = False )
+        if len(nxt_maybe) == 0:
+            nxt_id += 2
+        else:
+            nxt_id = np.argmin( df_order_coords.distance(Point( bd_mc_to_wgs(*nxt_maybe[0], factor = 1))) )
+        
+        time.sleep( 1 )
+    return
+
+def find_nxt_crawl_point_case_one_pano_return( respond, panos, df_order_coords):
+    """当pano返回仅有一个记录的时候，通过相对位置信息来获取新的抓取节点"""
+    cur_point =  Point( *bd_mc_to_wgs(*[float(i) for i in respond['crawl_coord'].split(',')], 1))
+    cur_crawl_position = np.argmin(df_order_coords.distance(cur_point))
+    nxt_crawl_position = np.argmin(df_order_coords.distance(panos.loc[0].geometry))
+    nxt_dis = df_order_coords.loc[nxt_crawl_position].dis_cum + 20
+    nxt_crawl_position = df_order_coords.query( f"dis_cum >= {nxt_dis}" ).index
+
+    if len(nxt_crawl_position) <= 0 or nxt_crawl_position[0] >=  df_order_coords.shape[0] -1:
+        return []
+    elif nxt_crawl_position[0] < cur_crawl_position:
+        nxt_crawl_position = cur_crawl_position + 3 if cur_crawl_position + 3 < df_order_coords.shape[0]-1 else df_order_coords.shape[0]-1
+    else:
+        nxt_crawl_position = nxt_crawl_position[0]
+
+    print("find_nxt_crawl_point_case_one_pano_return", cur_crawl_position, " -> ", nxt_crawl_position)
+    x, y = df_order_coords.loc[nxt_crawl_position].coords
+    return [(x, y)]
+
+
+def recognize_link_position(gdf_pano: gpd.GeoDataFrame, links: gpd.GeoDataFrame):
+    """recognize the link near the end port or not
+
+    Args:
+        gdf_pano (gpd.GeoDataFrame): [description]
+        links (gpd.GeoDataFrame): [description]
+
+    Returns:
+        [type]: [description]
+    """
+    link_to_end_port = links.distance(
+        gdf_pano.iloc[-1].geometry) * 110*1000
+    link_to_start_port = links.distance(
+        gdf_pano.iloc[0].geometry) * 110*1000
+
+    return link_to_end_port <= link_to_start_port
+
+
+def get_area_and_start_point():
+    #! load crawl area
+    area     = gpd.read_file('../input/area_test.geojson')
+    df_roads = gpd.read_file("../input/深圳市_osm路网_道路.geojson")
+    df_nodes = gpd.read_file("../input/深圳市_osm路网_节点.geojson")
+
+    roads = gpd.overlay( df_roads, area, how="intersection" )
+    nodes = gpd.overlay( df_nodes, area, how="intersection" )
+
+    if False:
+        ax = map_visualize(roads, color='red', scale = 0.1 )
+        nodes.plot(ax=ax, )
+        ax.axis('off')
+
+        ax = map_visualize( roads.set_geometry( 'start' ), color = 'red', scale = 0.1 )
+        ax.axis('off')
+
+    roads.loc[:,'start'] = roads.geometry.apply( lambda i: Point(i.xy[0][0], i.xy[1][0]) )
+    roads.loc[:,'end'] = roads.geometry.apply( lambda i: Point(i.xy[0][-1], i.xy[1][-1]) )
+    roads.loc[:,'start_bd_mc'] = roads.start.apply(lambda i: wgs_to_bd_mc(*i.coords[0]))
+    return roads.start_bd_mc.values.tolist(), area.loc[0].geometry
+
+
+
 if __name__ == '__main__':
-    x, y = bd_coord_to_mc(113.950112,22.545307)
+    x, y = bd_coord_to_mc(113.950112, 22.545307)
     road_id = query_pano_ID_by_coord(x, y)
-    df = query_pano_detail( road_id )
+    df = query_pano_detail(road_id)
     get_staticimage("09005700121902131650360579U", 76)
     # query_pano_detail_by_coord(12679154.25,2582274.24)
-
 
     # for test
     x, y = 12679157.9, 2582278.94
@@ -172,14 +224,4 @@ if __name__ == '__main__':
     respond = query_pano_detail(pano_info)
     respond
 
-
-
     pass
-
-
-
-
-
-
-
-

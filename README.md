@@ -8,7 +8,7 @@
 - [X] Traverse the road. How to deal with the road with two directions
     * 将API反馈的路段逐一合并，巧妙利用端点的情况
 - [X] Image storage format: file or DB
-- [ ] 等距离抽点：
+- [X] 等距离抽点：
 - [X] 引入*args, **kwargs参数控制函数参数的输入
 - [X] OSM dolwloader, 2020年12月3日
 
@@ -33,5 +33,15 @@
 * 道路标志识别
 
 traverse the topo network obtained from Baidu View
+- [X] 道路遍历代码修改，以每条线的起点为端点开始遍历
+- [X] get_road_shp_by_search_API增加缓存机制 -> `home\pcl\Data\minio_server\input\road_memo.csv`
+- [X] 霍夫变换 测试， 效果不佳
+- [X] GO语言重新编译
+- [ ] 通过街景的情况识别`交叉口`，下一步识别是否为信号灯控制交叉口
+- [ ] 街景`照片`增加 `角度`的信息，是否需要增加`时间`
+- [ ] 实现加速遍历
+- [ ] 最后生成车道级别的路网，参考 AnyLogic`Converting GIS shapefile to a road network`
+- [ ] 道路相似度检测，考虑因素：`线形`和`角度`
+
 
 

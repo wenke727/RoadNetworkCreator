@@ -1,9 +1,13 @@
 import geopandas as gpd
+import pandas as pd
+from shapely import geometry
 from sqlalchemy import create_engine
 import os
 from mapAPI import get_staticimage
 from roadNetwork import map_visualize
 import yaml
+from utils.coord.coord_transfer import bd_mc_to_wgs_vector
+from shapely.geometry import Point
 
 with open(os.path.join( os.path.dirname(__file__), 'config.yaml')) as file:
     config = yaml.load(file, Loader=yaml.FullLoader)
@@ -79,6 +83,26 @@ def store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads):
         print('Store_to_DB failed!')
         return False
 
+
+def extract_connectors_from_panos_respond( DB_pano_base, DB_roads ):
+    # FIXME DB_connectors need to re-construction 
+    roads = DB_pano_base[(DB_pano_base.Links.apply( lambda x: len(x) > 0 )) &
+                         (DB_pano_base.ID.isin(DB_roads.PID_end.unique().tolist()) )
+                        ]
+
+    def construct_helper(item):
+        df =  pd.DataFrame(item.Links)
+        df.loc[:, 'prev_pano_id'] = item.ID
+        return df
+
+    connectors = pd.concat(roads.apply( lambda x: construct_helper(x), axis=1 ).values.tolist())
+    connectors = gpd.GeoDataFrame( connectors, 
+                                   geometry = connectors.apply( lambda i: Point( bd_mc_to_wgs_vector(i)), axis=1 ),
+                                   crs ='EPSG:4326'
+                                )
+    return connectors
+
+
 def traverse_panos(df_panos):
     import time, random
     from tqdm import tqdm
@@ -94,6 +118,7 @@ def traverse_panos(df_panos):
             res = get_staticimage( item.PID, item.DIR )
             if res is not None:
                 time.sleep(random.uniform(2, 5))
+
 
 def DB_backup(DB_pano_base, DB_panos, DB_connectors, DB_roads):
     config_local = {"con": ENGINE, 'if_exists':'replace'}

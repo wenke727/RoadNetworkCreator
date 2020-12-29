@@ -13,7 +13,7 @@ import numpy as np
 sys.path.append('/home/pcl/traffic/map_factory')
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
 
-from coord.coord_transfer import bd_coord_to_mc, bd_mc_to_coord, bd_mc_to_wgs
+from utils.coord.coord_transfer import bd_coord_to_mc, bd_mc_to_coord, bd_mc_to_wgs
 from ImageRelatedProcess import clip_background, merge_tiles
 import GoogleMapTile_V3 as tile
 
@@ -61,7 +61,7 @@ class Node:
         return True
 
 
-def map_visualize(df: gpd.GeoDataFrame, lyrs='y', scale=0.5, figsize = (12,9), color = "gray", ax = None, *args, **kwargs):
+def map_visualize(df: gpd.GeoDataFrame, lyrs='y', scale=0.5, figsize = (12,9), color = "red", ax = None, fig=None, *args, **kwargs):
     """Draw the geodataframe with the satellite image as the background
 
     Args:
@@ -90,7 +90,7 @@ def map_visualize(df: gpd.GeoDataFrame, lyrs='y', scale=0.5, figsize = (12,9), c
                             x1+(x1-x0) * scale, y1-(y0-y1) * scale]
 
     zoom = 15 - int(math.log2(haversine((x0, y1), (x1, y0))/3))
-    zoom = 19 if zoom > 19 else zoom
+    zoom = 20 if zoom > 20 else zoom
     img = tile.Tiles()
     f_lst, img_bbox = img.get_tiles_by_bbox([x0, y1, x1, y0], zoom, lyrs)
     to_image = merge_tiles(f_lst)
@@ -104,7 +104,12 @@ def map_visualize(df: gpd.GeoDataFrame, lyrs='y', scale=0.5, figsize = (12,9), c
     # 去除科学记数法
     ax.get_xaxis().get_major_formatter().set_useOffset(False)
     ax.get_yaxis().get_major_formatter().set_useOffset(False)
-    return ax
+
+    # set_major_locator
+    # ax.xaxis.set_major_locator(plt.NullLocator())
+    # ax.yaxis.set_major_locator(plt.NullLocator())
+    
+    return fig, ax
 
 def reverse_shp(geometry):
     """
@@ -180,7 +185,7 @@ def query_road_by_OD(df_roads, lst):
 def identify_reverse_road(prev_node, cur_node, df_roads):
     if not cur_node.check_0_out_more_2_in():
         return cur_node
-    from spatialAnalysis import angle_bet_two_line
+    from utils.spatialAnalysis import angle_bet_two_line
 
     print("identify_reverse_road: ", cur_node.val)
 
