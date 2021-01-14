@@ -77,7 +77,7 @@ def map_visualize(df: gpd.GeoDataFrame, lyrs='y', scale=0.5, figsize = (12,9), c
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
     
-    df.plot(color = color, ax=ax, zorder=1)
+    df.plot(color = color, ax=ax, zorder=1, *args, **kwargs)
 
     [x0, x1], [y0, y1] = plt.xlim(), plt.ylim()
     gap_x, gap_y = (x1-x0), (y1-y0)
@@ -93,9 +93,8 @@ def map_visualize(df: gpd.GeoDataFrame, lyrs='y', scale=0.5, figsize = (12,9), c
     zoom = 20 if zoom > 20 else zoom
     img = tile.Tiles()
     f_lst, img_bbox = img.get_tiles_by_bbox([x0, y1, x1, y0], zoom, lyrs)
-    to_image = merge_tiles(f_lst)
-    background, _ = clip_background(
-        to_image, img_bbox, [x0, y1, x1, y0], False)
+    to_image        = merge_tiles(f_lst)
+    background, _   = clip_background( to_image, img_bbox, [x0, y1, x1, y0], False)
 
     ax.imshow(background, extent=[x0, x1, y0, y1], alpha=.6, zorder=0)
     plt.xlim(x0, x1)

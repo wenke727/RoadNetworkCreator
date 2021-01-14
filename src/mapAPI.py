@@ -4,6 +4,7 @@ from utils.coord.coord_transfer import bd_coord_to_mc, bd_mc_to_coord, bd_mc_to_
 import json
 import pandas as pd
 import geopandas as gpd
+import numpy as np
 from shapely.geometry import LineString, Point
 from PIL import Image
 import yaml
@@ -16,13 +17,13 @@ input_dir = config['data']['input_dir']
 
 
 def get_staticimage(id, heading, folder=pano_dir):
-    file_name = f"{folder}/{id}.jpg"
+    file_name = f"{folder}/{id}_{heading}.jpg"
     if os.path.exists(file_name):
         return False
 
     # print(file_name)
     # id = "09005700121902131650290579U"; heading = 87
-    url = f"https://mapsv0.bdimg.com/?qt=pr3d&fovy=88&quality=100&panoid={id}&heading={heading}&pitch=9&width=1024&height=768"
+    url = f"https://mapsv0.bdimg.com/?qt=pr3d&fovy=88&quality=100&panoid={id}&heading={heading}&pitch=0&width=1024&height=768"
     request = urllib.request.Request(url=url, method='GET')
     map = urllib.request.urlopen(request)
 
@@ -30,7 +31,7 @@ def get_staticimage(id, heading, folder=pano_dir):
     f.write(map.read())
     f.flush()
     f.close()
-    return True
+    return map
 
 
 def query_pano_detail(pano):
@@ -128,26 +129,26 @@ def query_pano_ID_by_coord(x, y):
     return res
 
 
-def traverse_panos_by_road_old(df_order_coords):
-    #TODO 变成反向遍历，links就可以用上
-    from collections import deque
-    queue = deque(list(df_order_coords[['id', 'coords']].values))
+# def traverse_panos_by_road_old(df_order_coords):
+#     #TODO 变成反向遍历，links就可以用上
+#     from collections import deque
+#     queue = deque(list(df_order_coords[['id', 'coords']].values))
 
-    nxt_id = 0
-    while queue:
-        cur_id, cur_node = queue.popleft()
-        if nxt_id > cur_id:
-            continue
-        print( cur_id, nxt_id, cur_node )
+#     nxt_id = 0
+#     while queue:
+#         cur_id, cur_node = queue.popleft()
+#         if nxt_id > cur_id:
+#             continue
+#         print( cur_id, nxt_id, cur_node )
 
-        respond, panos, nxt_maybe = query_pano( *cur_node, visualize = False )
-        if len(nxt_maybe) == 0:
-            nxt_id += 2
-        else:
-            nxt_id = np.argmin( df_order_coords.distance(Point( bd_mc_to_wgs(*nxt_maybe[0], factor = 1))) )
+#         respond, panos, nxt_maybe = query_pano( *cur_node, visualize = False )
+#         if len(nxt_maybe) == 0:
+#             nxt_id += 2
+#         else:
+#             nxt_id = np.argmin( df_order_coords.distance(Point( bd_mc_to_wgs(*nxt_maybe[0], factor = 1))) )
         
-        time.sleep( 1 )
-    return
+#         time.sleep( 1 )
+#     return
 
 def find_nxt_crawl_point_case_one_pano_return( respond, panos, df_order_coords):
     """当pano返回仅有一个记录的时候，通过相对位置信息来获取新的抓取节点"""

@@ -109,9 +109,12 @@ class Way:
                 if ref_node.is_crossing:
                     last_idx = idx
                     break
+            
             self.segment_node_list.append(m_segment_node_list)
             self.number_of_segments += 1
-            if idx == number_of_ref_nodes-1: break
+            
+            if idx == number_of_ref_nodes-1: 
+                break
 
 
 class Relation:

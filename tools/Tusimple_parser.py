@@ -2,14 +2,13 @@ import json
 import pandas as pd
 import os
 
-file = '/home/pcl/Data/lane_detection/label_data_0531.json'
 
-df = pd.read_json( file, lines=True )
-
+folder = '/home/pcl/Data/TuSimple/LaneDetection'
+lst = [ x for x in os.listdir(folder) if x.__contains__('json') ]
 
 res = []
-for f in ["label_data_0313.json", "label_data_0601.json", "label_data_0531.json"]:
-    df = pd.read_json( os.path.join("/home/pcl/Data/lane_detection", f), lines=True )
+for f in lst:
+    df = pd.read_json( os.path.join("/home/pcl/Data/TuSimple/LaneDetection", f), lines=True )
     res.append(df)
 
 df = pd.concat(res)

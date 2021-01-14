@@ -8,15 +8,16 @@ from shapely import wkt
 
 
 def _newLinkFromWay(link_id, way, direction, ref_node_list):
-    link = Link()
-    link.osm_way_id = way.osm_way_id
-    link.link_id = link_id
-    link.name = way.name
+    link                = Link()
+    link.osm_way_id     = way.osm_way_id
+    link.link_id        = link_id
+    link.name           = way.name
     link.link_type_name = way.link_type_name
-    link.link_type = way.link_type
-    link.free_speed = way.maxspeed
-    link.allowed_uses = way.allowed_uses
-    if not way.oneway: link.from_bidirectional_way = True
+    link.link_type      = way.link_type
+    link.free_speed     = way.maxspeed
+    link.allowed_uses   = way.allowed_uses
+    if not way.oneway: 
+        link.from_bidirectional_way = True
 
     if way.oneway:
         link.lanes_list = [way.lanes]
@@ -36,9 +37,9 @@ def _newLinkFromWay(link_id, way, direction, ref_node_list):
             else:
                 link.lanes_list = [way.lanes]
 
-    link.lanes = link.lanes_list[0]
+    link.lanes     = link.lanes_list[0]
     link.from_node = ref_node_list[0]
-    link.to_node = ref_node_list[-1]
+    link.to_node   = ref_node_list[-1]
     link.from_node.outgoing_link_list.append(link)
     link.to_node.incoming_link_list.append(link)
     link.geometry = getLineFromRefNodes(ref_node_list)
@@ -95,23 +96,30 @@ def _createLinks(network, link_way_list):
     link_dict = {}
     max_link_id = network.max_link_id
     for way in link_way_list:
-        if way.is_pure_cycle: continue
+        if way.is_pure_cycle: 
+            continue
+        
         way.getNodeListForSegments()
         for segment_no in range(way.number_of_segments):
             m_segment_node_list_group = _getSegmentNodeList(way, segment_no, network)
+            
             for m_segment_node_list in m_segment_node_list_group:
                 link = _newLinkFromWay(max_link_id, way, 1, m_segment_node_list)
                 link_dict[link.link_id] = link
                 max_link_id += 1
+            
                 if not way.oneway:
                     linkb = _newLinkFromWay(max_link_id, way, -1, list(reversed(m_segment_node_list)))
                     link_dict[linkb.link_id] = linkb
                     max_link_id += 1
+
     network.link_dict = link_dict
     network.max_link_id = max_link_id
 
 
 def _identifyCrossingNodes(link_way_list):
+    """ indentify crossing nodes based on `used_node_set`
+    """
     used_node_set = set()
     for way in link_way_list:
         way.ref_node_list[0].is_crossing = True
@@ -124,6 +132,7 @@ def _identifyCrossingNodes(link_way_list):
 
 
 def _identifyPureCycleWays(link_way_list):
+    """ indentify the pure cycle ways, which have no crossing node in it """
     for way in link_way_list:
         if way.is_cycle:
             way.is_pure_cycle = True
@@ -134,6 +143,8 @@ def _identifyPureCycleWays(link_way_list):
 
 
 def _getNetworkNodes(network):
+    """get the points which is crossing node and in the bbox region
+    """
     node_dict = {}
     max_node_id = network.max_node_id
     for osm_node_id, node in network.osm_node_dict.items():
@@ -207,6 +218,8 @@ def _removeIsolated(network,min_nodes):
 
 
 def _getValidNetworkType(network_type):
+    """ get valid network type, e.g., 'auto','bike','walk','railway','aeroway'
+    """
     if isinstance(network_type,str):
         network_type_temp = (network_type,)
     else:
@@ -222,6 +235,8 @@ def _getValidNetworkType(network_type):
 
 
 def _updateDefaultLaneSpeed(default_lanes, default_speed, network):
+    """ Update the default the number of landes of links and their speed limit
+    """
     if default_lanes:
         if isinstance(default_lanes,bool):
             network.default_lanes = default_lanes_dict
@@ -245,6 +260,8 @@ def _updateDefaultLaneSpeed(default_lanes, default_speed, network):
 
 
 def _parseNodes(network, nodes, strict_mode):
+    """ parse nodes, including: 1) strict within the bbox; 2) update attributes `highway` and `signal`
+    """
     osm_node_dict = {}
     for osm_node in nodes:
         node = Node()
@@ -260,7 +277,8 @@ def _parseNodes(network, nodes, strict_mode):
         tags = osm_node.tags
         if 'highway' in tags.keys():
             node.osm_highway = tags['highway']
-        if 'signal' in node.osm_highway: node.ctrl_type = 1         # todo: check signalized tag
+        if 'signal' in node.osm_highway: 
+            node.ctrl_type = 1         # todo: check signalized tag
 
         osm_node_dict[node.osm_node_id] = node
     network.osm_node_dict = osm_node_dict
@@ -269,6 +287,7 @@ def _parseNodes(network, nodes, strict_mode):
 def _parseWays(network, ways, relations, network_type, POIs):
     osm_way_dict = {}
 
+    # traverse ways  
     for osm_way in ways:
         way = Way()
         way.osm_way_id = str(osm_way.id)
@@ -286,44 +305,51 @@ def _parseWays(network, ways, relations, network_type, POIs):
             way.railway = tags['railway']
         if 'aeroway' in tags.keys():
             way.aeroway = tags['aeroway']
+
         if 'lanes' in tags.keys():
             lanes = re.findall(r'\d+\.?\d*', tags['lanes'])
             if len(lanes) > 0:
                 way.lanes = int(float(lanes[0]))  # in case of decimals
             else:
                 printlog(f'new lanes type detected at way {way.osm_way_id}, {tags["lanes"]}', 'warning')
+        
         if 'lanes:forward' in tags.keys():
             try:
                 way.forward_lanes = int(tags['lanes:forward'])
             except:
                 pass
+        
         if 'lanes:backward' in tags.keys():
             try:
                 way.backward_lanes = int(tags['lanes:backward'])
             except:
                 pass
+        
         if 'name' in tags.keys():
             way.name = tags['name']
+        
         if 'maxspeed' in tags.keys():
             speeds = re.findall(r'\d+\.?\d*', tags['maxspeed'])
             if len(speeds) > 0:
                 way.maxspeed = speeds[0]
             else:
                 printlog(f'new maxspeed type detected at way {way.osm_way_id}, {tags["maxspeed"]}', 'warning')
+        
         if 'oneway' in tags.keys():
             oneway_flag = tags['oneway']
             if oneway_flag == 'yes' or oneway_flag == '1':
                 way.oneway = True
-            elif oneway_flag == 'no' or oneway_flag == '0':
-                way.oneway = False
             elif oneway_flag == '-1':
                 way.oneway = True
                 way.is_reversed = True
+            elif oneway_flag == 'no' or oneway_flag == '0':
+                way.oneway = False
             elif oneway_flag in ['reversible', 'alternating']:
                 # todo: reversible, alternating: https://wiki.openstreetmap.org/wiki/Tag:oneway%3Dreversible
                 way.oneway = False
             else:
                 printlog(f'new maxspeed type detected at way {way.osm_way_id}, {tags["oneway"]}', 'warning')
+        
         if 'area' in tags.keys():
             way.area = tags['area']
         if 'motor_vehicle' in tags.keys():
@@ -363,6 +389,7 @@ def _parseWays(network, ways, relations, network_type, POIs):
 
             if len(way.ref_node_list) < 2: continue
 
+            # FIXME for what
             allowable_agent_type_list = getAllowableAgentType(way)
             way.allowable_agent_type_list = list(set(allowable_agent_type_list).intersection(network_type_set))
             if len(way.allowable_agent_type_list) == 0:

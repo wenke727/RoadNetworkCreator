@@ -17,6 +17,9 @@ def getDistanceFromCoord(lon1, lat1, lon2, lat2):
 
 
 def getLineFromRefNodes(ref_node_list):
+    """
+    get line from ref nodes, if the number node is less than 2, then return None
+    """
     if len(ref_node_list) < 2: return None
     point_list = [node.geometry for node in ref_node_list]
     line = geometry.LineString(point_list)

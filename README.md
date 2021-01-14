@@ -37,11 +37,15 @@ traverse the topo network obtained from Baidu View
 - [X] get_road_shp_by_search_API增加缓存机制 -> `home\pcl\Data\minio_server\input\road_memo.csv`
 - [X] 霍夫变换 测试， 效果不佳
 - [X] GO语言重新编译
+- [X] 标注工具使用和辅助代码开发
+- [X] 道路相似度检测，考虑因素：`线形`和`角度`
+- [X] Frenchet算法
+- [X] 重新采集图片,然后统一resize大小到`(1280, 720)`
+
+
 - [ ] 通过街景的情况识别`交叉口`，下一步识别是否为信号灯控制交叉口
-- [ ] 街景`照片`增加 `角度`的信息，是否需要增加`时间`
 - [ ] 实现加速遍历
 - [ ] 最后生成车道级别的路网，参考 AnyLogic`Converting GIS shapefile to a road network`
-- [ ] 道路相似度检测，考虑因素：`线形`和`角度`
 
 
 

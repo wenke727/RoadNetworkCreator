@@ -21,12 +21,12 @@ def log_type(record, handler):
 
 
 class LogHelper(object):
-    def __init__(self, log_dir=BASE_DIR, backup_count=10):
+    def __init__(self, log_dir=BASE_DIR, log_name='log.log', backup_count=10):
         if not os.path.exists(log_dir):
             os.mkdir(log_dir)
         self.log_dir = log_dir
         self.backup_count = backup_count
-        handler = TimedRotatingFileHandler(filename=self.log_dir + 'log.log',
+        handler = TimedRotatingFileHandler(filename= os.path.join(self.log_dir, log_name),
                                            date_format='%Y-%m-%d',
                                            backup_count=self.backup_count)
         self.handler = handler
@@ -44,13 +44,15 @@ def log_helper(log_file, content):
     log_file.write( f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}, {content}\n" )
     return 
 
-g_log_helper = LogHelper()
+if __name__ == "__main__":
+    g_log_helper = LogHelper(log_name='panos.log')
+    log = g_log_helper.make_logger(level=logbook.INFO)
+    log.critical("critical")
+    log.error("error")
+    log.warning("warning")
+    log.notice("notice")
+    log.info("info")
+    log.debug("debug")
+    pass
 
 
-# log = g_log_helper.make_logger(level=logbook.INFO)
-# log.critical("critical")
-# log.error("error")
-# log.warning("warning")
-# log.notice("notice")
-# log.info("info")
-# log.debug("debug")

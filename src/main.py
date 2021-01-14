@@ -26,7 +26,7 @@ pano_dir = config['data']['pano_dir']
 input_dir = config['data']['input_dir']
 
 DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
-Log_request = open( os.path.join(os.path.dirname(__file__), 'log/https.log'), mode='a', buffering=1)
+Log_request = open( os.path.join(config['data']['input_dir'], 'https.log'), mode='a', buffering=1)
 
 #%%
 
@@ -221,7 +221,7 @@ def pano_respond_parser(respond, add_to_DB, visualize, console_log=False, *args,
         nxt_coords = [[*((panos.iloc[-1][['X', 'Y']] + (panos.iloc[-1][['X', 'Y']] - panos.iloc[-2][['X', 'Y']]) * offset_factor)/100), None]]
 
     if visualize:
-        ax = map_visualize(panos, *args, **kwargs)
+        fig, ax = map_visualize(panos, *args, **kwargs)
         gpd.GeoDataFrame([cur_road]).plot( color='black', ax=ax, label = f"Road ({cur_road.Width/100})")
 
         if len(nxt_coords) > 0:
@@ -319,7 +319,7 @@ def intersection_visulize(pano_id=None, *args, **kwargs):
     if True:
         links.geometry = links.apply( lambda x: LineString( 
             [bd_mc_to_wgs( x.X, x.Y ), bd_mc_to_wgs( x.CPointX, x.CPointY )] ), axis=1 )
-        ax = map_visualize(links, 's', **{**kwargs, **{'color':'gray'}})
+        fig, ax = map_visualize(links, 's', **{**kwargs, **{'color':'gray'}})
 
         roads = gpd.GeoDataFrame(pano_respond['Roads'])
         panos = gpd.GeoDataFrame(roads.iloc[0].Panos)
@@ -349,7 +349,6 @@ def intersection_visulize(pano_id=None, *args, **kwargs):
 
 def traverse_panos_by_road(road_name, buffer=500, level_max=400, visualize=True, save=True):
     df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
-    # ax = map_visualize( df_roads, color='black' )
     
     starts =  [ [ float(i) for i in x.split(',')] for x in df_roads.start.values.tolist()]
     visited = set()
@@ -377,6 +376,7 @@ def traverse_panos_by_road(road_name, buffer=500, level_max=400, visualize=True,
 #%%
 if __name__ == "__main__":
 
+    """ 遍历道路 """
     # traverse_panos_by_road('沙河西路',buffer=500, level_max=200)
     import pickle
     
@@ -410,6 +410,10 @@ if __name__ == "__main__":
     
     traverse_panos_by_road(road_name="望海路", buffer=800, level_max=200)
     store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
+
+    """" link 可视化 """
+    intersection_visulize(pano_id="09005700011601080935054018N")
+    intersection_visulize(pano_id="09005700121709091658098439Y")
 
     # _ = query_pano(pano_id="09005700011601101430366728N", visualize=True)
     # # df_roads, directions, ports = get_road_shp_by_search_API('光侨路')
@@ -504,3 +508,5 @@ if __name__ == "__main__":
 
 
 
+
+# %%
