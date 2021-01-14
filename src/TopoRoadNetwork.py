@@ -10,8 +10,9 @@ import yaml
 sys.path.append('/home/pcl/traffic/map_factory')
 from coordTransfrom_shp import coord_transfer
 
+from utils.utils import load_config
 
-config = yaml.load( open(os.path.join(os.path.dirname(__file__), 'config.yaml')))
+config    = load_config()
 pano_dir = config['data']['pano_dir']
 input_dir = config['data']['input_dir']
 

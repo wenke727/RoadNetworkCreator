@@ -5,6 +5,7 @@ from .activity import *
 from .writefile import *
 from .settings import *
 
+# Ref: https://osm2gmns.readthedocs.io/en/latest/
 
 
 print('osm2gmns, version 0.2.1')

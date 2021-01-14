@@ -2,7 +2,6 @@ from matplotlib.pyplot import flag
 from shapely import geometry
 from tqdm.cli import main
 from main import *
-from mapAPI import get_staticimage
 import yaml
 from tqdm import tqdm
 import random
@@ -12,18 +11,19 @@ import http
 # from PIL import Image
 import seaborn as sns
 from utils.log_helper import LogHelper
+from utils.utils import load_config
 import logbook
 
 STEPS = 4
-with open(os.path.join(os.path.dirname(__file__), 'config.yaml')) as f:
-    config = yaml.load( f )
+
+config    = load_config()
 pano_dir  = config['data']['pano_dir']
 input_dir = config['data']['input_dir']
 PANO_log = LogHelper(log_dir=config['data']['log_dir'], log_name='panos.log').make_logger(level=logbook.INFO)
 
 
 def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
-    """[summary]
+    """get static image from Baidu View with `pano id`
 
     Args:
         pid ([type]): [description]
@@ -35,7 +35,7 @@ def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
     Returns:
         [type]: [description]
     """
-    # origin: /home/pcl/traffic/RoadNetworkCreator_by_View/src/mapAPI.py
+    
     # id = "09005700121902131650290579U"; heading = 87
     if os.path.exists(path): return path
 
@@ -107,6 +107,24 @@ def traverse_panos(df_panos):
             res = get_staticimage( item.PID, item.DIR )
             if res is not None:
                 time.sleep(random.uniform(2, 5))
+
+def query_static_imgs_by_road(name = '光侨路'):
+    # 根据道路获取其街景
+    # TODO 推送到minio服务器
+
+    rids = DB_roads.query(f"Name == '{name}' ").RID.unique().tolist()
+    df = DB_panos.query( f"RID in {rids}" )
+
+    for index, item in tqdm( df[130:].iterrows()):
+        if item.DIR == 0:
+            continue
+        
+        if get_staticimage(item.PID, heading=item.DIR):
+            time.sleep(random.triangular(0.5, 1, 10))
+
+    return True
+
+
 
 if __name__ == "__main__":
     # rid = "7b3a55-bab4-becf-aea3-a9344d"

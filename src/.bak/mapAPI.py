@@ -7,31 +7,13 @@ import geopandas as gpd
 import numpy as np
 from shapely.geometry import LineString, Point
 from PIL import Image
-import yaml
 import os
 
-config = yaml.load(
-    open(os.path.join(os.path.dirname(__file__), 'config.yaml')))
+from utils.utils import load_config
+
+config    = load_config()
 pano_dir = config['data']['pano_dir']
 input_dir = config['data']['input_dir']
-
-
-def get_staticimage(id, heading, folder=pano_dir):
-    file_name = f"{folder}/{id}_{heading}.jpg"
-    if os.path.exists(file_name):
-        return False
-
-    # print(file_name)
-    # id = "09005700121902131650290579U"; heading = 87
-    url = f"https://mapsv0.bdimg.com/?qt=pr3d&fovy=88&quality=100&panoid={id}&heading={heading}&pitch=0&width=1024&height=768"
-    request = urllib.request.Request(url=url, method='GET')
-    map = urllib.request.urlopen(request)
-
-    f = open(file_name, 'wb')
-    f.write(map.read())
-    f.flush()
-    f.close()
-    return map
 
 
 def query_pano_detail(pano):
@@ -216,7 +198,6 @@ if __name__ == '__main__':
     x, y = bd_coord_to_mc(113.950112, 22.545307)
     road_id = query_pano_ID_by_coord(x, y)
     df = query_pano_detail(road_id)
-    get_staticimage("09005700121902131650360579U", 76)
     # query_pano_detail_by_coord(12679154.25,2582274.24)
 
     # for test

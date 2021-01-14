@@ -1,6 +1,5 @@
 from shapely import geometry
 from main import *
-from mapAPI import get_staticimage
 from PIL import Image
 
 route = gpd.read_file( "../output/for_Presentation_留仙洞.geojson" )

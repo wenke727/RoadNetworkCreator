@@ -1,12 +1,12 @@
 from minio import Minio
 import os
 import logbook
-from log_helper import g_log_helper
+from utils.log_helper import g_log_helper
 g_log = g_log_helper.make_logger(logbook.INFO)
 
-SERVER_ADDR = os.environ.get('MINIO_SERVER_ADDR', '192.168.135.16:9000')
-ACCESS_KEY = os.environ.get('MINIO_ACCESS_KEY', 'minioadmin')
-SECRET_KEY = os.environ.get('MINIO_SECRET_KEY', 'minioadmin')
+SERVER_ADDR   = os.environ.get('MINIO_SERVER_ADDR', '192.168.135.32:9000')
+ACCESS_KEY    = os.environ.get('MINIO_ACCESS_KEY', 'minioadmin')
+SECRET_KEY    = os.environ.get('MINIO_SECRET_KEY', 'minioadmin')
 HTTP_PROTOCOL = os.environ.get('MINIO_HTTP_PROTOCOL', 'http')
 
 
