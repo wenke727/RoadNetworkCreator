@@ -370,7 +370,6 @@ if __name__ == "__main__":
     """ 遍历道路 """
     # traverse_panos_by_road('沙河西路',buffer=500, level_max=200)
     import pickle
-    
     road_name_lst = pickle.load( open('./road_name_lst_nanshan.pkl', 'rb') )
 
     failed_record = ['桃园路',
