@@ -10,8 +10,6 @@ points.query( "DIR != 0", inplace=True )
 
 points.info()
 
-map_visualize(points)
-
 
 
 def draw_polygon_by_bbox(bbox=[113.93306,22.57437, 113.9383, 22.58037]):

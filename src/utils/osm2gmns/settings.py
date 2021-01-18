@@ -29,6 +29,7 @@ link_type_no_dict = {'motorway':1, 'trunk':2, 'primary':3, 'secondary':4, 'terti
 
 default_lanes_dict = {'motorway': 4, 'trunk': 3, 'primary': 3, 'secondary': 2, 'tertiary': 2, 'residential': 1, 'service': 1,
                       'cycleway':1, 'footway':1, 'track':1, 'unclassified': 1, 'connector': 2}
+
 default_speed_dict = {'motorway': 59, 'trunk': 39, 'primary': 39, 'secondary': 39, 'tertiary': 29, 'residential': 29, 'service': 29,
                       'cycleway':9, 'footway':4, 'track':29, 'unclassified': 29, 'connector':59}
 

@@ -12,3 +12,6 @@ def load_config(fn=None):
     return config
 
 
+if __name__ == "__main__":
+    config = load_config()
+    pass

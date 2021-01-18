@@ -1,3 +1,4 @@
+from geopandas.geodataframe import GeoDataFrame
 from numpy.core.defchararray import count
 import pandas as pd
 import numpy as np
@@ -22,6 +23,7 @@ class Line_vector(object):
         d = math.sqrt(pow((self.x1 - self.x2), 2) + pow((self.y1 - self.y2), 2))
         return d
 
+
 def angle_bet_two_line(a, b):
     '''
     @input: pandas.core.series.Series, pandas.core.series.Series
@@ -30,6 +32,7 @@ def angle_bet_two_line(a, b):
     a = Line_vector(a)
     b = Line_vector(b)
     return np.arccos( np.dot(a.v, b.v) / (a.l*b.l) )/math.pi*180
+
 
 def create_polygon_by_bbox(bbox):
     """creaet polygon by bbox(min_x, min_y, max_x, max_y)
@@ -47,7 +50,8 @@ def create_polygon_by_bbox(bbox):
     
     return Polygon(coords)
 
-def query_gdf_by_bbox(gdf, bbox=[113.929807, 22.573702, 113.937680, 22.578734]):
+
+def clip_gdf_by_bbox(gdf, bbox=[113.929807, 22.573702, 113.937680, 22.578734]):
     # extract the roads of intrest
 
     gdf.reset_index(drop=True)
@@ -55,6 +59,7 @@ def query_gdf_by_bbox(gdf, bbox=[113.929807, 22.573702, 113.937680, 22.578734]):
     roi = gdf.loc[roi]
 
     return roi
+
 
 def cal_dis_matrix(df, xy_cols=['x','y']):
     """ caculate distance matrix of point set """
@@ -64,8 +69,19 @@ def cal_dis_matrix(df, xy_cols=['x','y']):
     return haversine_np( (dis_matrix[:,0],  dis_matrix[:,1]),  (dis_matrix[:, np.newaxis][:,:,0], dis_matrix[:, np.newaxis][:,:,1]) )
 
 
+def linestring_length(df:gpd.GeoDataFrame):
+    """caculate the length of LineString
+    @return: pd:Series, length
+    """
+    # """" caculate the length of road segment  """
+    # DB_roads.loc[:, 'length'] = DB_roads.to_crs('epsg:3395').length
+    if df.crs is None:
+        df.set_crs(epsg=4326, inplace=True)
+    return df.to_crs('epsg:3395').length
+    
+
 """ helper functions """
-def distance_bet_point_line( point, line ):
+def distance_bet_point_line( point:list, line:list):
     """caculate the distance from point to line, and return the position of foot point and distance
     1) the foot point is on the line, the value is in [0,1]; 
     2) the foot point is on the extension line of segment AB, near the starting point, the value < 0; 
@@ -73,11 +89,11 @@ def distance_bet_point_line( point, line ):
 
 
     Args:
-        point ([type]): [description]
-        line ([type]): [description]
+        point (list): [x, y]
+        line (list): [x0, y0, x1, y1]
 
     Returns:
-        [type]: [description]
+        [float]: the distance to line
     """
     # print(line)
     pqx = line[2] - line[0]
@@ -102,7 +118,8 @@ def distance_bet_point_line( point, line ):
     dy = line[1] + t*pqy - point[1]
     return flag, math.sqrt(dx*dx + dy*dy)
 
-def get_Foot_Point(point, line_p1, line_p2):
+
+def get_foot_point(point, line_p1, line_p2):
     """
     @point, line_p1, line_p2 : [x, y, z]
     """
@@ -125,10 +142,11 @@ def get_Foot_Point(point, line_p1, line_p2):
     yn = k * (y2 - y1) + y1
     # zn = k * (z2 - z1) + z1
 
-    return ( round(xn, 6), round(yn, 6))
+    return (round(xn, 6), round(yn, 6))
+
 
 def relation_bet_point_and_line( point, line ):
-    """    Judge the realtion between point and the line, there are three situation:
+    """Judge the realtion between point and the line, there are three situation:
     1) the foot point is on the line, the value is in [0,1]; 
     2) the foot point is on the extension line of segment AB, near the starting point, the value < 0; 
     3) the foot point is on the extension line of segment AB, near the ending point, the value >1; 
@@ -157,7 +175,8 @@ def relation_bet_point_and_line( point, line ):
 
     return flag
 
-def the_foot_point_on_line( point, line, ratio_thres=0.005 ):
+
+def the_foot_point_on_line( point:list, line:pd.Series, ratio_thres=0.000):
     """caculate the foot point is on the line or not
 
     Args:
@@ -171,7 +190,7 @@ def the_foot_point_on_line( point, line, ratio_thres=0.005 ):
     # if isinstance( line, pd.Series ):
     line_ = line.iloc[0] + line.iloc[-1]
     # line_ = line
-    return  0-ratio_thres <= relation_bet_point_and_line(point, line_) <= 1+ratio_thres
+    return  0 - ratio_thres <= relation_bet_point_and_line(point, line_) <= 1 + ratio_thres
 
 
 
@@ -190,6 +209,7 @@ def hausdorff(u: np.array, v: np.array):
     # Ref: https://docs.scipy.org/doc/scipy-0.19.0/reference/generated/scipy.spatial.distance.directed_hausdorff.html
     d = max(directed_hausdorff(u, v)[0], directed_hausdorff(v, u)[0])
     return d
+
 
 def hausdorff_bet_polyline( u: LineString or pd.Series, v: LineString or pd.Series, unit="METER" ):
     """cacaulte the hausdorff distance between u and v
@@ -210,7 +230,7 @@ def hausdorff_bet_polyline( u: LineString or pd.Series, v: LineString or pd.Seri
         return [i for i in zip( tmp.coords.xy[0], tmp.coords.xy[1] )]
 
     res = hausdorff( get_coords(u), get_coords(v) )
-    return res * 110 *1000 if unit =="METER" else res
+    return res * 110 *1000 if unit=="METER" else res
 
 
 """ frechet dist related function """
@@ -220,6 +240,7 @@ def frechet_distance(P, Q):
     ca = np.multiply(ca,-1)
     res = frechet_dfs(ca, len(P) - 1, len(Q) - 1, P, Q, {})  # ca是a*b的矩阵(3*4),2,3
     return res, ca
+
 
 def frechet_distance_bet_polyline( u: LineString or pd.Series, v: LineString or pd.Series, unit="METER", cut_or_not=True, interpolation=None ):
     """cacaulte the hausdorff distance between u and v
@@ -244,19 +265,23 @@ def frechet_distance_bet_polyline( u: LineString or pd.Series, v: LineString or 
     """
     # Trajectory Similarity Measures, Ref: https://www.zhihu.com/question/27213170
 
-    def get_coords(tmp):
+    def _get_coords(tmp):
         # the input could be: geometry or pd.Series with geometry
         if isinstance( tmp, pd.Series ):
+            assert hasattr(tmp, "geometry"), "obj had no geometry attribiute"
             return [i for i in zip( tmp.geometry.coords.xy[0], tmp.geometry.coords.xy[1] )]
         return [i for i in zip( tmp.coords.xy[0], tmp.coords.xy[1] )]
 
-    res, ca = frechet_distance( np.array(get_coords(u)), np.array(get_coords(v)) )
+    res, ca = frechet_distance( np.array(_get_coords(u)), np.array(_get_coords(v)) )
     res = res if unit =="METER" else res
+    
     return res, ca 
+
 
 def euc_dist(pt1, pt2, factor=1):
     # return math.sqrt((pt2[0]-pt1[0])*(pt2[0]-pt1[0]) + (pt2[1]-pt1[1])*(pt2[1]-pt1[1]))
     return np.linalg.norm(pt1 - pt2) * factor
+
 
 def frechet_dfs(ca, i, j, P, Q, memo):
     if (i,j) in memo: return memo[(i,j)]
@@ -295,15 +320,4 @@ if __name__ == "__main__":
     frechet_distance(P,Q)
 
     pass
-
-# Q = np.array([[[2,2]], [[0,1]], [[2,4]]])
-
-# Q.reshape(-1,2)
-# np.linalg.norm( P- Q, keepdims=True )
-# from haversine import haversine_np
-# haversine_np( (P[:,0],  P[:,1]),  (Q[:, np.newaxis][:,:,0], Q[:, np.newaxis][:,:,1]) )
-
-# (P[:,0],  P[:,1]),  (Q[:, np.newaxis][:,:,0], Q[:, np.newaxis][:,:,1])
-
-# P - Q[:, np.newaxis]
 

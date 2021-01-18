@@ -103,21 +103,21 @@ def DB_backup(DB_pano_base, DB_panos, DB_connectors, DB_roads):
 def extract_connectors_from_panos_respond( DB_pano_base, DB_roads ):
     from utils.coord.coord_transfer import bd_mc_to_wgs_vector
     
-    # FIXME DB_connectors need to be re-constructed 
+    # TODO DB_connectors need to be re-constructed 
     roads = DB_pano_base[(DB_pano_base.Links.apply( lambda x: len(x) > 0 )) &
-                         (DB_pano_base.ID.isin(DB_roads.PID_end.unique().tolist()) )
+                         (DB_pano_base.ID.isin(DB_roads.PID_end.unique()) )
                         ]
 
-    def construct_helper(item):
-        df =  pd.DataFrame(item.Links)
+    def _construct_helper(item):
+        df = pd.DataFrame(item.Links)
         df.loc[:, 'prev_pano_id'] = item.ID
         return df
 
-    connectors = pd.concat(roads.apply( lambda x: construct_helper(x), axis=1 ).values.tolist())
+    connectors = pd.concat(roads.apply( lambda x: _construct_helper(x), axis=1 ).values.tolist())
     connectors = gpd.GeoDataFrame( connectors, 
                                    geometry = connectors.apply( lambda i: Point( bd_mc_to_wgs_vector(i)), axis=1 ),
                                    crs ='EPSG:4326'
-                                )
+                                 )
     return connectors
 
 
@@ -125,19 +125,13 @@ if __name__ == '__main__':
     DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(new = False)
 
     # DB_panos.drop(columns='wgs', inplace=True)
-    DB_backup(DB_pano_base, DB_panos, DB_connectors, DB_roads)
+    # DB_backup(DB_pano_base, DB_panos, DB_connectors, DB_roads)
 
     DB_pano_base.set_crs(epsg=4326)
     DB_pano_base.crs
-    ##############
     df_panos = gpd.read_postgis( "select * from panos", con=ENGINE, geom_col='geometry' )
 
-    from roadNetwork import map_visualize
-    map_visualize(df_panos)
-
-
     #! 存储去重问题
-
     DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(new = False)
 
     for att in ['Roads', 'Links']:
@@ -154,4 +148,7 @@ if __name__ == '__main__':
     DB_panos.set_crs(epsg=4326, inplace=True)
 
     store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
+    
+    
+    extract_connectors_from_panos_respond( DB_pano_base, DB_roads )
 

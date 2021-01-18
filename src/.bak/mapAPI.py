@@ -10,6 +10,7 @@ from PIL import Image
 import os
 
 from utils.utils import load_config
+from utils.geo_plot_helper import map_visualize
 
 config    = load_config()
 pano_dir = config['data']['pano_dir']

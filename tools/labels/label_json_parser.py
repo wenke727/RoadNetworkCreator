@@ -36,6 +36,7 @@ class Lane_label():
         df = Y_AXIS.merge(pd.DataFrame( {'x': pred_x, 'y': pred_y} ), on='y', how='outer').fillna(-2).astype(np.int)
         # Warming: 需要统一尺寸, height大于720的直接删除
         df.query( f" y <= {Y_MAX} ", inplace=True )
+        
         return df[['x','y']].values
 
     def label_to_json(self, ):

@@ -4,6 +4,28 @@ data:
   input_dir: /home/pcl/Data/minio_server/input
   pano_tile_dir: /home/pcl/Data/RoadNetworkCreator/tiles
   log_dir: /home/pcl/traffic/RoadNetworkCreator_by_View/log
+osm:
+  osm_highway_type_dict:
+    motorway: motorway
+    motorway_link: motorway
+    trunk: trunk
+    trunk_link: trunk
+    primary: primary
+    primary_link: primary
+    secondary: secondary
+    secondary_link: secondary
+    tertiary: tertiary
+    tertiary_link: tertiary
+    residential: residential
+    residential_link: residential
+    service: service
+    services: service
+    cycleway: cycleway
+    footway: footway
+    pedestrian: footway
+    steps: footway
+    track: track
+    unclassified: unclassified
 model:
   model_dir: data/model/HetETA_toy
   method: HetETA
