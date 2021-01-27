@@ -1,12 +1,12 @@
 #%%
 import os
 # from roadNetwork import *
-# traverse_road_consider_reverse_edge, extract_roads_info, 
 import matplotlib.pyplot as plt
 import urllib
 import json
 import pandas as pd
 import geopandas as gpd
+import numpy as np 
 import time
 import random
 import warnings
@@ -14,61 +14,35 @@ import seaborn as sns
 from tqdm import tqdm
 from shapely.geometry import Point, LineString, Polygon
 import coordTransform_py.CoordTransform_utils as ct
-warnings.filterwarnings(action="ignore")
 
+from baidu_map import get_road_shp_by_search_API, baidu_API_log
 from db.db_process import load_from_DB, store_to_DB, ENGINE
-from utils.log_helper import log_helper
+from utils.classes import Digraph
+from utils.log_helper import LogHelper, logbook
 from utils.utils import load_config
 from utils.coord.coord_transfer import *
 from utils.geo_plot_helper import map_visualize
 
+warnings.filterwarnings(action="ignore")
+
 config    = load_config()
 pano_dir  = config['data']['pano_dir']
 input_dir = config['data']['input_dir']
-
+pano_API_log = LogHelper(log_dir=config['data']['log_dir'], log_name='panos_base.log').make_logger(level=logbook.INFO)
 DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
-Log_request = open( os.path.join(config['data']['input_dir'], 'https.log'), mode='a', buffering=1)
-
-
-def get_road_shp_by_search_API(road_name):
-    """get road shape by Baidu searching API
-
-    Args:
-        road_name (str): the road name
-    """
-    def points_to_line(line):
-        return [ct.bd09_to_wgs84(*bd_mc_to_coord(float(line[i*2]), float(line[i*2+1]))) for i in range(len(line)//2)]
-    
-    fn = os.path.join(input_dir, "road_memo.csv")
-    df_roads = pd.read_csv(fn) if os.path.exists(fn) else pd.DataFrame(columns=['name'])
-
-    if df_roads.query(f"name == '{road_name}' ").shape[0] > 0:
-        json_data = eval( df_roads.query(f"name == '{road_name}' ").respond.values[0] )[0]
-    else:
-        url       = f"https://map.baidu.com/?newmap=1&reqflag=pcmap&biz=1&from=webmap&da_par=direct&pcevaname=pc4.1&qt=s&da_src=searchBox.button&wd={urllib.parse.quote(road_name)}&c=340&src=0&wd2=&pn=0&sug=0&l=19&b=(12685428.325,2590847.5;12685565.325,2591337)&from=webmap&sug_forward=&auth=DFK98QE10QLPy1LTFybKvxyESGSRPVGWuxLVLxBVERNtwi04vy77uy1uVt1GgvPUDZYOYIZuVtcvY1SGpuEt2gz4yBWxUuuouK435XwK2vMOuUbNB9AUvhgMZSguxzBEHLNRTVtcEWe1aDYyuVt%40ZPuVteuRtlnDjnCER%40REERG%40EBfiKKvCCu1iifGOb&device_ratio=1&tn=B_NORMAL_MAP&nn=0&u_loc=12684743,2564601&ie=utf-8&t=1606130493139"
-        request   = urllib.request.Request(url=url, method='GET')
-        res       = urllib.request.urlopen(request).read()
-        json_data = json.loads(res)
-        df_roads  = df_roads.append({'name': road_name, 'respond': [json_data]}, ignore_index=True)
-        df_roads[['name', 'respond']].to_csv(fn, index=False)
-
-    # FIXME Maybe the road is not the first record
-    # res = pd.DataFrame(json_data['content']) 
-    lines = json_data['content'][0]['profile_geo']
-    directions, ports, lines = lines.split('|')
-
-    df = pd.DataFrame(lines.split(';')[:-1], columns=['coords']) # lines[-1] is empty
-    df = gpd.GeoDataFrame(df, geometry=df.apply(lambda x: LineString(points_to_line(x.coords.split(','))), axis=1))
-    df['start'] = df.apply(lambda x: ','.join(x.coords.split(',')[:2]), axis=1)
-    df['end']   = df.apply(lambda x: ','.join(x.coords.split(',')[-2:]), axis=1)
-    df.crs = "epsg:4326"
-    df.loc[:, 'length'] = df.to_crs('epsg:3395').length
-
-    return df, directions, ports.split(';')
 
 
 def get_road_buffer(road_name, buffer=100):
-    df_roads, dirs, ports = get_road_shp_by_search_API(road_name)
+    """获取道路的边界线
+
+    Args:
+        road_name ([type]): [description]
+        buffer (int, optional): [description]. Defaults to 100.
+
+    Returns:
+        [type]: [description]
+    """
+    df_roads, dirs, ports = get_road_shp_by_search_API(road_name, None)
     ports = [ [ float(i) for i in  p.split(',')] for p in ports]
     df_copy = df_roads.copy()
 
@@ -88,7 +62,7 @@ def get_road_buffer(road_name, buffer=100):
 
 
 def add_pano_respond_to_DB(respond, panos, links, cur_road, write_to_db = True):
-    """insert the record to the Database
+    """insert the record to the dataframe, not the DB
 
     Args:
         respond (dict): the query API respond 
@@ -126,28 +100,32 @@ def query_pano(x=None, y=None, pano_id=None, visualize=False, add_to_DB=True, ht
         http_log (bool, optional): Display or not. Defaults to True.
 
     Returns:
-        [type]: [description]
+        status (int): -2/-1: error; 1 success, exit record; 2, success, new record
+        API respond (dict): the respond of the query
+        panos (gpd.GeoDataFrame): the panos in the respond
+        nxt (list): the next query point, pid or coordination
+        
     """
+    
     res = {'crawl_coord': str(x)+","+str(y) if x is not None else None}
 
     # get panoid by coordination
     if pano_id is None:
-        # TODO coord_to_pano_memo
         url       = f'https://mapsv0.bdimg.com/?qt=qsdata&x={x}&y={y}'
         request   = urllib.request.Request(url=url, method='GET')
         json_data = json.loads(urllib.request.urlopen(request).read())
-        if http_log: log_helper( Log_request, f"query ({x}, {y}), {url}")
     
         if 'content' in json_data:
             pano_id = json_data['content']['id']
             res['RoadName'] = json_data['content']['RoadName']
             res['res_coord'] = ','.join([str(float(i)/100) for i in [json_data['content']['x'], json_data['content']['y']]])
+            pano_API_log.info( f"\tcoord ({x}, {y}), {url}")
         else:
             res['status'] = False
-            print(f'query ({x}, {y}) failed, for there is not macthing record')
-            return None, None, []
+            pano_API_log.error(f'\tquery ({x}, {y}) failed, for there is not macthing record')
+            return -1, None, None, []
     
-    # check the pano id in the db or not, and the pano is the last point of the segment
+    # check the pano id in the DB or not, and the pano is the last point of the segment
     global DB_panos, DB_pano_base
     while DB_pano_base.shape[0] > 0 and DB_pano_base.query( f" ID == '{pano_id}' " ).shape[0] > 0:
         pano_respond = DB_pano_base.query( f" ID == '{pano_id}' " ).to_dict('records')[0]
@@ -155,28 +133,35 @@ def query_pano(x=None, y=None, pano_id=None, visualize=False, add_to_DB=True, ht
         panos, nxt = pano_respond_parser(pano_respond, visualize = visualize, add_to_DB=False, *args, **kwargs)
         
         if panos.iloc[-1].PID == pano_id:
-            return pano_respond, panos, nxt
+            return 1, pano_respond, panos, nxt
 
         pano_id = panos.iloc[-1].PID
 
     def _get_pano( pano_id, sleep=True ):
         url = f"https://mapsv0.bdimg.com/?qt=sdata&sid={pano_id}"
-        if http_log: log_helper( Log_request, f"query ({pano_id}), {url}")
+        if http_log: 
+            pano_API_log.info( f"\tpano id: {pano_id}, {url}")
+        
         request = urllib.request.Request(url, method='GET')
         pano_respond = json.loads(urllib.request.urlopen(request).read())
         if sleep: time.sleep( random.uniform(0.5, 1.5)*2 )
         return pano_respond['content'][0]
 
     # query pano via Baidu API
-    pano_respond = _get_pano( pano_id )
-    panos, nxt   = pano_respond_parser({**res, **pano_respond}, visualize=visualize, add_to_DB=add_to_DB, *args, **kwargs)
+    try:
+        pano_respond = _get_pano( pano_id )
+        panos, nxt   = pano_respond_parser({**res, **pano_respond}, visualize=visualize, add_to_DB=add_to_DB, *args, **kwargs)
 
-    if panos.iloc[-1].PID != pano_id: 
-        pano_respond = _get_pano( panos.iloc[-1].PID )
-        res['crawl_coord'] = ','.join([ str(float(x)/100) for x in [panos.iloc[-1]['X'], panos.iloc[-1]['Y']]])
-        panos, nxt = pano_respond_parser({**res, **pano_respond}, visualize=visualize, add_to_DB=add_to_DB, *args, **kwargs)
+        if panos.iloc[-1].PID != pano_id: 
+            pano_respond = _get_pano( panos.iloc[-1].PID )
+            res['crawl_coord'] = ','.join([ str(float(x)/100) for x in [panos.iloc[-1]['X'], panos.iloc[-1]['Y']]])
+            panos, nxt = pano_respond_parser({**res, **pano_respond}, visualize=visualize, add_to_DB=add_to_DB, *args, **kwargs)
 
-    return pano_respond, panos, nxt
+        return 2, pano_respond, panos, nxt
+    except:
+        if http_log: 
+            pano_API_log.info( f"\tpano id {pano_id}, crawl failed! ")
+        return -2, None, None, []
 
 
 def pano_respond_parser(respond, add_to_DB, visualize, console_log=False, *args, **kwargs):
@@ -265,25 +250,35 @@ def isValid_Point(nxt:list, area:Polygon):
     return df_nxt.within(area).values[0]
 
 
-def bfs_helper(x, y, area, pano_id=None, max_level=200, visualize=False, console_log=False):
-    # A* 算法，以方向为导向，优先遍历，但有个问题，就是level就没有用了
-    # plot_config = { 'visualize': False, 'add_to_DB': True, 'scale': 2}
-    respond, panos, queue = query_pano( x=x, y=y, pano_id=pano_id, http_log=True, visualize=False, add_to_DB=True, scale=2 )
-
+def bfs_helper(x, y, area, pano_id=None, max_level=200, visualize=False, console_log=False, log_extra_info=None, auto_save_db=True):
+    _, respond, panos, queue = query_pano( x=x, y=y, pano_id=pano_id, http_log=True, visualize=False, add_to_DB=True, scale=2 )
     level = 0
     visited = set()
+    query_num = 0
+    thres = 300
+
+    # TODO new visited
     while queue and level < max_level:
         nxt_queue = []
         for item in queue:
             if item[2] in visited or not isValid_Point(item, area):
                 continue
             
-            res, pa, nxt = query_pano( *item, visualize=False, add_to_DB=True )
+            status, res, pa, nxt = query_pano( *item, visualize=False, add_to_DB=True )
             visited.add(item[2])
             nxt_queue += nxt
+                        
+            if not auto_save_db:
+                continue
+            if status == 2: query_num += 1
+            if query_num < thres:
+                continue
+            store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
+            query_num = 0
+            pano_API_log.critical(f"auto save data to postgre database")
 
-        # TODO write to `./log`
-        if console_log: print('\n', f"level {level}, queue: {len(queue)}, nxt: {len(nxt_queue)}  ", "=" * 50)
+        if console_log: 
+            pano_API_log.info(f"{log_extra_info} level {level}, queue: {len(queue)}, nxt: {len(nxt_queue)} ")
         
         queue = nxt_queue
         level += 1
@@ -305,7 +300,7 @@ def intersection_visulize(pano_id=None, *args, **kwargs):
         [type]: [description]
     """
     #  交叉口的可视化
-    pano_respond, panos, nxt = query_pano(pano_id = pano_id, visualize=False, scale =2)
+    _, pano_respond, panos, nxt = query_pano(pano_id = pano_id, visualize=False, scale =2)
 
     links = gpd.GeoDataFrame(pano_respond['Links'])
     if links.shape[0] == 0: 
@@ -314,7 +309,7 @@ def intersection_visulize(pano_id=None, *args, **kwargs):
 
     queue, df_panos, nxt_rids = [], [], []
     for pid in links.PID.values:
-        res, df_pano, _ =  query_pano(pano_id=pid, add_to_DB=True, visualize=False)
+        _, res, df_pano, _ =  query_pano(pano_id=pid, add_to_DB=True, visualize=False)
         queue.append(res)
         df_panos.append(df_pano)
         nxt_rids.append( df_pano['RID'].values[0] )
@@ -356,96 +351,126 @@ def intersection_visulize(pano_id=None, *args, **kwargs):
     return queue, nxt_rids
 
 
-def traverse_panos_by_road(road_name, buffer=500, max_level=400, visualize=True, save=True):
-    df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
-    
-    starts =  [ [ float(i) for i in x.split(',')] for x in df_roads.start.values.tolist()]
-    visited = set()
+def get_road_origin_points(df_roads):
+    node_dic = {}
     count = 0
-    
-    p = starts[0]
-    for p in tqdm(starts):
-        temp = bfs_helper(*p, road_buffer, pano_id=None, max_level=max_level, console_log=True)
-        visited = visited.union(temp)
-        time.sleep(1)
 
-        if len(temp) > 100 or count > 100:
-            count = 0
-            if save: store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
-        else:
-            count += len(temp)
+    for i in np.concatenate( [df_roads.start, df_roads.end] ):
+        if i in node_dic:
+            continue
+        node_dic[i] = count
+        count += 1
+
+    node = pd.DataFrame([node_dic], index=['id']).T
+
+    edges = df_roads.merge( node, left_on='start', right_index=True ).merge( node, left_on='end', right_index=True, suffixes=['_0', '_1'] )
+    node = node.reset_index().rename(columns={"index": 'coord'}).set_index('id')
+    
+    network = Digraph( edges = edges[['id_0', 'id_1']].values )
+    origins = network.get_origin_point()
+
+    return [ [ float(x) for x in node.loc[i, 'coord'].split(",")] for i in  origins]
+
+
+def traverse_panos_by_road(road_name, buffer=500, max_level=400, visualize=True, auto_save_db=True):
+
+    # buffer=500; max_level=400; visualize=True; save=True; road_name = '打石一路'
+    df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
+    # map_visualize(df_roads)
+    # starts =  [ [ float(i) for i in x.split(',')] for x in df_roads.start.values.tolist()]
+    starts  = get_road_origin_points(df_roads)
+    visited = set()
+    count  = 0
+    level = 0
+    
+    try:
+        for p in tqdm(starts):
+            log_extra_info = f"{road_name}, {level}/{len(starts)}"
+            temp = bfs_helper(*p, road_buffer, pano_id=None, max_level=max_level, console_log=True, log_extra_info=log_extra_info, auto_save_db=auto_save_db)
+            visited = visited.union(temp)
+            level += 1
+
+            # if len(temp) > 100 or count > 100:
+            #     count = 0
+            #     # if auto_save_db: 
+            #     #     store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
+            #     #     pano_API_log.critical("write to DB")
+            # else:
+            #     count += len(temp)
+    except:
+        store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
+        pano_API_log.error( f"traverse {road_name} error" )
 
     if visualize:
         df = DB_roads.query(f"PID_end in {list(visited)} or PID_start in {list(visited)}")
         map_visualize(df, color= 'red')
-
+        
+    store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
     return all
 
 
 #%%
 if __name__ == "__main__":
 
-    """ 遍历道路 """
-    # traverse_panos_by_road('沙河西路',buffer=500, max_level=200)
-    import pickle
-    road_name_lst = pickle.load( open('./road_name_lst_nanshan.pkl', 'rb') )
-
-    failed_record = ['桃园路',
-        '明德路',
-        '二线巡逻道',
-        '科园路',
-        '10#桥',
-        '深圳灣公路大橋 Shenzhen Bay Bridge',
-        '2号路',
-        '汕头街',
-        '奇趣路',
-        '大沙河大桥',
-        '兰龙路',
-        '格木道',
-        '后海立交',
-        '兴海大道高架',
-        '沙河桥',
-        '天宝路',
-        '牛罗线',
-        '二线关路',
-        '前湾一路']
-    for i in tqdm(road_name_lst[-185:]):
-        try:
-            get_road_shp_by_search_API(i)
-        except:
-            failed_record.append(i)
-        time.sleep(10)
+    # """ 遍历道路 """
+    # lst = ['红荔路', '益田路', '皇岗路', ]
+    # lst = ['打石一路', '茶光路',  ]
+    # # road_name = "益田路"
+    # for road_name in lst:
+    #     traverse_panos_by_road(road_name, buffer=800, max_level=200)
     
-    traverse_panos_by_road(road_name="望海路", buffer=800, max_level=200)
-    store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
-
-    """" link 可视化 """
-    intersection_visulize(pano_id="09005700011601080935054018N")
-    intersection_visulize(pano_id="09005700121709091658098439Y")
-
-    # _ = query_pano(pano_id="09005700011601101430366728N", visualize=True)
-    # # df_roads, directions, ports = get_road_shp_by_search_API('光侨路')
-    # # df_roads.to_file('../input/光侨路.geojson', driver="GeoJSON")
-    # df_roads = gpd.read_file('../input/光侨路.geojson')
-    # df_roads_back = df_roads.copy()
-    # # df_roads = df_roads_back.copy()
-    # points, graph, zero_indegree_points = extract_roads_info(df_roads)
     
-    # res, one_road = traverse_road_consider_reverse_edge('12685054.46,2591594.75', graph, df_roads) # 南行
-    # # res, one_road = traverse_road_consider_reverse_edge('12679023.75,2582246.14', graph, df_roads) # 东行
-    # map_visualize(one_road, 's', 0.2, (16, 12), color='blue')
-    # # one_road.to_file('../input/光侨路_东行.geojson', driver="GeoJSON")
-    # df_order_coords = create_crawl_point(one_road, "line", True)
+    # traverse_panos_by_road('新洲路')
+    # traverse_panos_by_road('益田路')
+    # traverse_panos_by_road('金田路')
+    traverse_panos_by_road('彩田路')
+    
+    """ 福田区 """
+    # '新洲路','益田路','福华三路','福华一路','福中三路',
+    
+    lst = ['福中一路','福中路','红荔路','红荔西路','金田路', '皇岗路','福华路','福强路','滨河大道','香蜜湖路', '彩田路','滨河大道','深南中路']
+    
+    ['福民路']
+    for road_name in lst:
+        traverse_panos_by_road(road_name, buffer=100, max_level=200)
+    
+    # road_name = '益田路'
+    # traverse_panos_by_road(road_name, buffer=100, max_level=200)
+    
+    # import pickle
+    # road_name_lst = pickle.load( open('./road_name_lst_nanshan.pkl', 'rb') )
 
+    # failed_record = ['桃园路',
+    #     '明德路',
+    #     '二线巡逻道',
+    #     '科园路',
+    #     '10#桥',
+    #     '深圳灣公路大橋 Shenzhen Bay Bridge',
+    #     '2号路',
+    #     '汕头街',
+    #     '奇趣路',
+    #     '大沙河大桥',
+    #     '兰龙路',
+    #     '格木道',
+    #     '后海立交',
+    #     '兴海大道高架',
+    #     '沙河桥',
+    #     '天宝路',
+    #     '牛罗线',
+    #     '二线关路',
+    #     '前湾一路']
+    # for i in tqdm(road_name_lst[-185:]):
+    #     try:
+    #         get_road_shp_by_search_API(i)
+    #     except:
+    #         failed_record.append(i)
+    #     time.sleep(10)
+    
+    # traverse_panos_by_road(road_name="望海路", buffer=800, max_level=200)
+    # store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
 
-    # # # 发现针对南行情景的效果还是比较差
-    # # traverse_panos_by_road( df_order_coords )
-
-    # # map_visualize(DB_roads)
-
-
-    # view intersection
-    # pano_respond, panos, nxt = query_pano(pano_id='09005700122003141455078615H', visualize=True)
-    # intersection_visulize(pano_respond, visulize=True)
+    # """" link 可视化 """
+    # intersection_visulize(pano_id="09005700011601080935054018N")
+    # intersection_visulize(pano_id="09005700121709091658098439Y")
     pass
 

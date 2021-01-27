@@ -7,6 +7,7 @@ import os
 
 # from PIL import Image
 import seaborn as sns
+from db.db_process import load_from_DB
 from utils.log_helper import LogHelper
 from utils.utils import load_config
 import logbook
@@ -17,7 +18,9 @@ STEPS = 4
 config    = load_config()
 pano_dir  = config['data']['pano_dir']
 input_dir = config['data']['input_dir']
-PANO_log = LogHelper(log_dir=config['data']['log_dir'], log_name='panos.log').make_logger(level=logbook.INFO)
+PANO_log = LogHelper(log_dir=config['data']['log_dir'], log_name='pano_img.log').make_logger(level=logbook.INFO)
+
+DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
 
 
 def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
@@ -42,12 +45,13 @@ def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
     try:
         file = urllib.request.urlopen(request, timeout = 60)
         if sleep: time.sleep( random.triangular(0.1, 3, 10) )
-        if log_helper is not None: log_helper.info(url)
+        if log_helper is not None: log_helper.info( f"{pid}: {url}")
         
         f = open(path, 'wb')
         f.write(file.read())
         f.flush()
         f.close()
+        
     except urllib.error as e:
         # FIXME http.client.IncompleteRead: IncompleteRead(114291 bytes read, 502762 more expected), 
         if log_helper is not None: 
@@ -82,14 +86,15 @@ def traverse_panos_by_rid(rid, log=None):
     """
     df_pids = get_pano_ids_by_rid(rid)
 
-    # FIXME the strategy to crawl the panos data
-    pano_lst = df_pids.query( f"Order % @STEPS == 3 and Order != {df_pids.Order.max()}" )[['Order','PID', 'DIR']].values
+    # TODO STEP change to other form with more flexible
+    pano_lst = df_pids.query( f"Order % @STEPS == 0 and Order != {df_pids.Order.max()}" )[['Order','PID', 'DIR']].values
+    res = []
     for id, (order, pid, heading) in enumerate(pano_lst):
         fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
         # print(fn)
-        get_staticimage( pid=pid, heading=heading, path=fn, log_helper=log )
+        res.append(get_staticimage( pid=pid, heading=heading, path=fn, log_helper=log ))
 
-    return 
+    return res
 
 
 def traverse_panos(df_panos):

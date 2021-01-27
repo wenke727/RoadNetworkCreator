@@ -12,8 +12,6 @@ from utils.geo_plot_helper import map_visualize
 from utils.utils import load_config
 from utils.classes import Node, Digraph
 
-import coordTransform_py.CoordTransform_utils as ct
-from utils.coord.coord_transfer import bd_mc_to_coord
 
 
 sys.path.append('/home/pcl/traffic/')
@@ -137,7 +135,7 @@ class OSM_road_network:
         for rid in tqdm(rids, desc='Shorten the links'):
             res.append(_split_roads_based_on_node_degree(edges, rid, nodes_dic))
         edges_new = pd.concat(res)
-        edges_new = gpd.GeoDataFrame(edges_new, geometry=edges_new.geometry)
+        edges_new = gpd.GeoDataFrame(edges_new, geometry=edges_new.geometry, crs='EPSG:4326' )
 
         if save_path is not None:
             edges_new.to_file(save_path, driver="GeoJSON")
@@ -268,7 +266,7 @@ class OSM_road_network:
             # df, _     = area_boundary.get_boundary_city_level(mask)
             # area = area_boundary.get_boundary_district_level('深圳')
             area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
-            area = area.query( f"name =='南山区' " ).geometry.values[0] # TODO area filter
+            # area = area.query( f"name =='南山区' " ).geometry.values[0] # TODO area filter
             nodes = gpd.clip( nodes, area )
             self.node_signal = gpd.clip( self.node_signal, area )
 
@@ -291,173 +289,105 @@ class OSM_road_network:
         return nodes, self.edges
 
 
-def roads_from_baidu_search_API(fn=os.path.join(input_dir, "road_memo.csv")):
-    """ 从`百度地图`中获取路网 """
-    df_roads = pd.read_csv(fn) if os.path.exists(fn) else pd.DataFrame(columns=['name'])
-    search_respond = pd.concat(
-        df_roads.respond.apply(lambda x: pd.DataFrame(eval(x)[0]['content'] if 'content' in eval(x)[0] else [])).values)
-    # python – Pandas.dataframe.query() – 获取非空行(Pandas等效于SQL：“IS NOT NULL”)
-    roads_respond = search_respond.query("road_id == road_id")
-    # remove the missing values columns
-    roads_respond.dropna(axis=1, how="all", inplace=True)
-    roads_respond = roads_respond[~roads_respond.profile_geo.isnull()]
-    roads_respond.drop_duplicates('name', keep='last', inplace=True)
-    roads_respond.reset_index(drop=True, inplace=True)
-
-    roads_respond.loc[:, 'class'] = roads_respond.cla.apply(lambda x: x[-1])
-    roads_respond.loc[:, 'directions'] = roads_respond.profile_geo.apply( lambda x: float(x.split("|")[0]))
-
-    # extract road segment
-    def convert_to_lines(content):
-        def points_to_line(line):
-            return [ct.bd09_to_wgs84(*bd_mc_to_coord(float(line[i*2]), float(line[i*2+1]))) for i in range(len(line)//2)]
-
-        directions, ports, lines = content.profile_geo.split('|')
-
-        df = pd.DataFrame(lines.split(';')[:-1], columns=['coords'])
-        # Six decimal places
-        df = gpd.GeoDataFrame(df, geometry=df.apply(
-            lambda x: LineString(points_to_line(x.coords.split(','))), axis=1))
-
-        df.loc[:, 'name'] = content['name']
-        df.loc[:, 'primary_uid'] = content['primary_uid']
-
-        return df
-
-    roads = pd.concat(roads_respond.apply(lambda x: convert_to_lines(x), axis=1).values)
-    roads.loc[:, 's'] = roads.geometry.apply(lambda x: x.coords[0])
-    roads.loc[:, 'e'] = roads.geometry.apply(lambda x: x.coords[-1])
-
-    if True:
-        # move useless attribut
-        drop_atts = []
-        for att in list(roads_respond):
-            try:
-                if roads_respond[att].nunique() == 1:
-                    drop_atts.append(att)
-            except:
-                print(f"{att} unhashable type")
-
-        if 'directions' in drop_atts:
-            drop_atts.remove('directions')
-        drop_atts += ['profile_geo']
-
-        roads_respond.drop(columns=drop_atts, inplace=True)
-        # df_roads_info.to_csv('df_roads_info.csv')
-
-    return roads_respond, roads
+    def add_neg_direction_of_two_ways_edges(self, df_edges):
+        default_oneway_flag_dict = {'yes': True, 
+                                    '-1': True, 
+                                    '1': True, 
+                                    'reversible': True, # TODO: reversible, alternating: https://wiki.openstreetmap.org/wiki/Tag:oneway%3Dreversible
+                                    'no': False,
+                                    '0': False}
+        # origin {'yes': True, '-1':True, 'reversible':True, 'no':False}
+        df_edges.loc[:, '_oneway'] = df_edges.oneway.fillna(False).replace( default_oneway_flag_dict ).astype(np.bool)
+        one_way_edges = df_edges.query( '_oneway' )
+        two_way_edges = df_edges.query( 'not _oneway' )
+        # map_visualize(two_way_edges)
+        # map_visualize(one_way_edges, scale=0.01)
+        
+        """ # DESC test the node degree of links """
+        # links_two_way =  two_way_edges[two_way_edges.road_type.str.contains('link')]
+        # map_visualize(links_two_way, scale=0.01)
+        # links_one_way = one_way_edges[one_way_edges.road_type.str.contains('link')]
+        # map_visualize(links_one_way, scale=0.01)
 
 
-def add_neg_direction_of_two_ways_edges(df_edges):
-    default_oneway_flag_dict = {'yes': True, 
-                                '-1': True, 
-                                '1': True, 
-                                'reversible': True, # TODO: reversible, alternating: https://wiki.openstreetmap.org/wiki/Tag:oneway%3Dreversible
-                                'no': False,
-                                '0': False}
-    # origin {'yes': True, '-1':True, 'reversible':True, 'no':False}
-    df_edges.loc[:, '_oneway'] = df_edges.oneway.fillna(False).replace( default_oneway_flag_dict ).astype(np.bool)
-    one_way_edges = df_edges.query( '_oneway' )
-    two_way_edges = df_edges.query( 'not _oneway' )
-    # map_visualize(two_way_edges)
-    # map_visualize(one_way_edges, scale=0.01)
-    
-    """ # DESC test the node degree of links """
-    # links_two_way =  two_way_edges[two_way_edges.road_type.str.contains('link')]
-    # map_visualize(links_two_way, scale=0.01)
-    # links_one_way = one_way_edges[one_way_edges.road_type.str.contains('link')]
-    # map_visualize(links_one_way, scale=0.01)
+        """ the negetive direction of the two-way roads """
+        two_way_edges_neg = two_way_edges.copy()
 
+        pids = two_way_edges_neg.pids.apply( lambda x: list(map(int, x.split(";")[::-1])) )
+        two_way_edges_neg.loc[:, 'pids']     = pids.apply( lambda x: ';'.join( map(str, x) ) )
+        two_way_edges_neg.loc[:, 'geometry'] = pids.apply( lambda x: LineString( [ osm_shenzhen.node_dic[i] for i in x ] ) )
+        two_way_edges_neg.loc[:, ['s','e']]  = two_way_edges_neg.loc[:, ['e','s']].values
+        del pids
 
-    """ the negetive direction of the two-way roads """
-    two_way_edges_neg = two_way_edges.copy()
-
-    pids = two_way_edges_neg.pids.apply( lambda x: list(map(int, x.split(";")[::-1])) )
-    two_way_edges_neg.loc[:, 'pids']     = pids.apply( lambda x: ';'.join( map(str, x) ) )
-    two_way_edges_neg.loc[:, 'geometry'] = pids.apply( lambda x: LineString( [ osm_shenzhen.node_dic[i] for i in x ] ) )
-    two_way_edges_neg.loc[:, ['s','e']]  = two_way_edges_neg.loc[:, ['e','s']].values
-    del pids
-
-    two_way_edges.loc[:, 'direction'], two_way_edges_neg.loc[:, 'direction'] = 1, 2
-    df_all = pd.concat( [two_way_edges, two_way_edges_neg, one_way_edges] )
-    df_all.loc[:, 'rid'] = df_all.rid.astype(np.int)
-    df_all.loc[:, 'direction'] = df_all.direction.fillna(0).astype(np.int)
-    # df_all.to_file( '../output/tmp_two_way_network_add.geojson', driver="GeoJSON" )
-    return df_all
+        two_way_edges.loc[:, 'direction'], two_way_edges_neg.loc[:, 'direction'] = 1, 2
+        df_all = pd.concat( [two_way_edges, two_way_edges_neg, one_way_edges] )
+        df_all.loc[:, 'rid'] = df_all.rid.astype(np.int)
+        df_all.loc[:, 'direction'] = df_all.direction.fillna(0).astype(np.int)
+        # df_all.to_file( '../output/tmp_two_way_network_add.geojson', driver="GeoJSON" )
+        return df_all
 
 
 if __name__ == '__main__':
     """ clip a small roadnetwork by bbox from OSM xml file  """
-    fn = '/home/pcl/Data/minio_server/input/shenzhen_road_osm.xml'
-    roi = clip_gdf_by_bbox( DB_roads, bbox=[113.929807, 22.573702, 113.937680, 22.578734])
-    map_visualize(roi, scale=0.05)
+    # fn = '/home/pcl/Data/minio_server/input/shenzhen_road_osm.xml'
+    # roi = clip_gdf_by_bbox( DB_roads, bbox=[113.929807, 22.573702, 113.937680, 22.578734])
+    # map_visualize(roi, scale=0.05)
     # map_visualize(roi.query(f"PID_end == PID_start"), color="red")
 
 
-    """ 从`百度地图`中挑取感兴趣的道路 """
-    # get_road_shp_by_search_API('乾丰二路')
-    df_roads_info, df_segments = roads_from_baidu_search_API()
-    # lst = ['打石一路', '创科路', '打石二路', "仙茶路", "兴科一街", "创研路", '石鼓路', '茶光路','乾丰一路','乾丰二路']
-    # df_segments.query(f"name in {lst}", inplace=True)
-    df_segments.drop(columns=['s','e'] ).to_file(  os.path.join(input_dir, 'shenzhen_road_baidu.geojson'), driver="GeoJSON" )
-    map_visualize(df_segments, scale=0.01)
-    df_roads_info.columns
-    edges = df_segments[['s', 'e']].values
-
 
     """" road network data pre-process, extracted from OSM """
-    fn = '/home/pcl/Data/minio_server/input/shenzhen_nanshan_road_osm.xml'
-    # fn = '/home/pcl/Data/minio_server/input/shenzhen_road_osm.xml'
+    fn = '/home/pcl/Data/minio_server/input/shenzhen_road_osm.xml'
+    # fn = '/home/pcl/Data/minio_server/input/shenzhen_nanshan_road_osm.xml'
     osm_nanshan = OSM_road_network(fn, '深圳')
     osm_nanshan.edges # 10146 -> 10586
-    pickle.dump(osm_nanshan, open('../input/road_network_osm_shenzhen.pkl', 'wb'))
+    pickle.dump(osm_nanshan, open('../input/road_network_osm_shenzhen_0125.pkl', 'wb'))
     
-    osm_shenzhen = pickle.load(open("../input/road_network_osm_shenzhen.pkl", 'rb') )
-    df_nodes, df_edges = osm_shenzhen.nodes, osm_shenzhen.edges
-    df_nodes.to_file( '../input/nodes_Nanshan.geojson', driver="GeoJSON" )
-    df_edges.to_file( '../input/edges_Nanshan.geojson', driver="GeoJSON" )
-    osm_shenzhen.node_signal.to_file( '../input/signals_Nanshan.geojson', driver="GeoJSON" )
-    # df_nodes = gpd.read_file( "../input/nodes_Nanshan.geojson" )
-    # df_edges = gpd.read_file( "../input/edges_Nanshan.geojson")
-    map_visualize(df_edges, scale=.05, figsize=(24,18))
+    # osm_shenzhen = pickle.load(open("../input/road_network_osm_shenzhen.pkl", 'rb') )
+    # df_nodes, df_edges = osm_shenzhen.nodes, osm_shenzhen.edges
+    # # df_nodes.to_file( '../input/nodes_Nanshan.geojson', driver="GeoJSON" )
+    # df_edges.to_file( '../input/edges_Nanshan.geojson', driver="GeoJSON" )
+    # # osm_shenzhen.node_signal.to_file( '../input/signals_Nanshan.geojson', driver="GeoJSON" )
+    # # df_nodes = gpd.read_file( "../input/nodes_Nanshan.geojson" )
+    # # df_edges = gpd.read_file( "../input/edges_Nanshan.geojson")
+    # map_visualize(df_edges, scale=.05, figsize=(24,18))
 
-    df_edges_bak = df_edges.copy()
-    df_edges = add_neg_direction_of_two_ways_edges( df_edges )
+    # df_edges_bak = df_edges.copy()
+    # df_edges = osm_nanshan.add_neg_direction_of_two_ways_edges( df_edges )
 
-    # EDA: Exploratory Data Analysis
-    df_edges.road_type.unique()
-    df_edges.lanes.value_counts()
-    df_edges.maxspeed.value_counts()
+    # # EDA: Exploratory Data Analysis
+    # df_edges.road_type.unique()
+    # df_edges.lanes.value_counts()
+    # df_edges.maxspeed.value_counts()
 
+    # df_edges.loc[:, "link"] = df_edges.road_type.str.contains('link')
+    
+    # # ! #TODO 信号灯交叉点识别
+    # network = Digraph(edges=df_edges[['s', 'e']].values)
+    # # network.graph, network.prev, network.degree
 
-
-
-    # ! #TODO 信号灯交叉点识别
-    network = Digraph(edges=df_edges[['s', 'e']].values)
-    # network.graph, network.prev, network.degree
-
-    df_degree = network.degree
-    df_degree = gpd.GeoDataFrame( df_degree, geometry = df_degree.coord.apply( lambda i: Point( *osm_shenzhen.node_dic[i] ) ) )
-    map_visualize(df_degree, scale=.1) 
-    # df_degree.to_file( '../output/tmp_df_node_degree.geojson', driver="GeoJSON" )
-
+    # df_degree = network.degree
+    # df_degree = gpd.GeoDataFrame( df_degree, geometry = df_degree.coord.apply( lambda i: Point( *osm_shenzhen.node_dic[i] ) ) )
+    # map_visualize(df_degree, scale=.1) 
+    # # df_degree.to_file( '../output/tmp_df_node_degree.geojson', driver="GeoJSON" )
 
 
 
-    df_nodes.merge( network.degree ) 
-    # df_degree.drop('coord', axis=1).to_file( 'df_degree.geojson', driver="GeoJSON" )
 
-    map_visualize(df_degree.query(" indegree > 1 or outdegree >1 "))
+    # df_nodes.merge( network.degree ) 
+    # # df_degree.drop('coord', axis=1).to_file( 'df_degree.geojson', driver="GeoJSON" )
+
+    # map_visualize(df_degree.query(" indegree > 1 or outdegree >1 "))
 
 
-    out_degree, in_degree = edges.s.value_counts(), edges.e.value_counts()
-    nodes_degree = pd.concat([out_degree, in_degree], axis=1).fillna(0).astype(np.int)
+    # out_degree, in_degree = edges.s.value_counts(), edges.e.value_counts()
+    # nodes_degree = pd.concat([out_degree, in_degree], axis=1).fillna(0).astype(np.int)
 
-    node_1_1 = nodes_degree.query("s==1 and e==1").index.astype(np.int).to_list()
+    # node_1_1 = nodes_degree.query("s==1 and e==1").index.astype(np.int).to_list()
 
-    edges.info()
+    # edges.info()
 
-    rids = edges.road_id.unique()
+    # rids = edges.road_id.unique()
 
-    len(rids)
+    # len(rids)
 

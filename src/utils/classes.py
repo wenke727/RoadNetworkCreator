@@ -1,6 +1,10 @@
 import pandas as pd
 import geopandas as gpd
+import numpy as np
 from shapely.geometry import Point
+
+from .geo_plot_helper import map_visualize
+
 
 class Node:
     """
@@ -47,11 +51,6 @@ class Node:
 
 class Digraph:
     def __init__(self, v=0, edges=None, *args, **kwargs):
-
-        self.Vertex = v
-        self.Edge = 0
-
-        # key is node, value is neighbors
         self.graph = {}
         self.prev = {}
         if edges is not None:
@@ -73,26 +72,109 @@ class Digraph:
         self.prev[end].add(start)
         pass
 
+    def remove_edge(self, start, end):
+        self.graph[start].remove(end)
+        if len(self.graph[start]) == 0:
+            del self.graph[start]
+        
+        self.prev[end].remove(start)
+        if len(self.prev[end]) == 0:
+            del self.prev[end]
+        pass
+
     def build_graph(self, edges):
         for edge in edges:
             self.add_edge(*edge)
         return self.graph
 
+    def clean_empty_set(self):
+        for item in [self.prev, self.graph]:
+            for i in list(item.keys()):
+                if len(item[i]) == 0:
+                    del item[i]
+        pass
+        
     def calculate_degree(self,):
-        df_degree = pd.merge(
+        self.clean_empty_set()
+        self.degree = pd.merge(
             pd.DataFrame([[key, len(self.prev[key])]
-                          for key in self.prev], columns=['coord', 'indegree']),
+                          for key in self.prev], columns=['node_id', 'indegree']),
             pd.DataFrame([[key, len(self.graph[key])]
-                          for key in self.graph], columns=['coord', 'outdegree']),
-            on='coord'
-        )
+                          for key in self.graph], columns=['node_id', 'outdegree']),
+            how='outer',
+            on='node_id'
+        ).fillna(0).astype(np.int)
+        
+        return self.degree
 
-        # df_degree = gpd.GeoDataFrame(df_degree,
-        #                              geometry=df_degree.coord.apply(
-        #                                  lambda x: Point(*x))
-        #                              )
+    def get_origin_point(self,):
+        self.calculate_degree()
+        return self.degree.query( "indegree == 0 and outdegree != 0" ).node_id.values
+    
+    def _combine_edges_helper(self, origins, result=None, pre=None, roads=None, vis=False):
+        """combine segment based on the node degree
 
-        self.degree = df_degree
+        Args:
+            origins ([type]): [description]
+            result (list, optional): [Collection results]. Defaults to None.
+            pre ([type], optional): The previous points, the case a node with more than 2 children. Defaults to None.
+            roads (gpd.Geodataframe, optional): 道路数据框，含有属性 's' 和 'e'. Defaults to None.
+            vis (bool, optional): [description]. Defaults to False.
+        """
+        for o in origins:
+            pre_node = o
+            path = []
+            if pre is not None:
+                path = [[pre,o]]
+                self.remove_edge(pre,o)
 
-        # df_degree.query( " indegree > 1 or outdegree >1 " )
+            # case: 0 indegree, > 2 outdegree
+            if len(self.graph[o]) > 1:
+                o_lst = list( self.graph[o] )
+                self._combine_edges_helper( o_lst, result, o, roads, vis )
+                return
+            
+            while o in self.graph and len(self.graph[o]) == 1:
+                o = list(self.graph[o])[0]
+                self.remove_edge( pre_node, o )
+                path.append([pre_node, o])
+                pre_node = o
+
+            if roads is not None:
+                assert hasattr(roads, 's') and hasattr(roads, 'e'), "attribute is missing"
+                tmp = gpd.GeoDataFrame(path, columns=['s','e']).merge( roads, on=['s','e'] )
+            
+                ids = []
+                for i in tmp.rid.values:
+                    if len(ids) == 0 or ids[-1] != i:
+                        ids.append(i)
+                # ids = '_'.join(map(str, ids))
+
+                if vis: map_visualize(tmp, 's')
+                if result is not None: result.append([tmp, ids ])
+
+            else:
+                if result is not None: result.append([path, []])
+            
+        return
+
+    def combine_edges(self, roads=None, vis=False):
+        import copy
+        graph_bak = copy.deepcopy(self.graph)
+        prev_back = copy.deepcopy(self.prev.copy())
+        
+        result = [] # path, road_id
+        origins = self.get_origin_point()
+        while len(origins) > 0:
+            self._combine_edges_helper(origins, result, roads=roads)
+            origins = self.get_origin_point()
+
+        if roads is not None and vis:
+            for i, _ in result:
+                map_visualize(i, 's')
+        
+        self.graph = graph_bak
+        self.prev = prev_back
+        
+        return result
 

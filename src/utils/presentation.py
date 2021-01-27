@@ -1,5 +1,8 @@
 from shapely import geometry
-from main import *
+from geopandas import gpd
+import urllib
+import matplotlib.pyplot as plt
+# from main import *
 from PIL import Image
 
 route = gpd.read_file( "../output/for_Presentation_留仙洞.geojson" )
@@ -66,7 +69,7 @@ def plot_pano_position(pid):
 # point_presentation = plot_pano_position(pid = '09005700121709091540516459Y')
 
 def plot_postion_and_pano(pid, direction, save_path=None):
-    # TODO 双栏显示
+    # 双栏显示
     point_presentation = plot_pano_position(pid)
     img = get_staticimage(pid, direction)
 

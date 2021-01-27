@@ -11,7 +11,7 @@ from ImageRelatedProcess import clip_background, merge_tiles
 import GoogleMapTile_V3 as tile
 
 def map_visualize(df: gpd.GeoDataFrame, 
-                  lyrs='y', 
+                  lyrs='s', 
                   scale=0.5, 
                   figsize = (12,9), 
                   color = "red", 
@@ -30,10 +30,14 @@ def map_visualize(df: gpd.GeoDataFrame,
     Returns:
         [ax]: [description]
     """
+    
+    # lyrs='y';scale=0.5;figsize = (12,9); color = "red";ax = None;fig=None;
+    
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
     
     df.plot(color = color, ax=ax, zorder=1, *args, **kwargs)
+    # df.plot(color = color, ax=ax, zorder=1)
 
     [x0, x1], [y0, y1] = plt.xlim(), plt.ylim()
     gap_x, gap_y = (x1-x0), (y1-y0)
@@ -46,7 +50,8 @@ def map_visualize(df: gpd.GeoDataFrame,
                             x1+(x1-x0) * scale, y1-(y0-y1) * scale]
 
     zoom = 15 - int(math.log2(haversine((x0, y1), (x1, y0))/3))
-    zoom = 20 if zoom > 20 else zoom
+    # warming: if zoom big than 19 then there will be somthing wrong
+    zoom = 19 if zoom > 19 else zoom
     img = tile.Tiles()
     f_lst, img_bbox = img.get_tiles_by_bbox([x0, y1, x1, y0], zoom, lyrs)
     to_image        = merge_tiles(f_lst)
@@ -69,5 +74,19 @@ def map_visualize(df: gpd.GeoDataFrame,
 
 if __name__ == '__main__':
     import geopandas as gpd
-    df = gpd.read_file("/home/pcl/traffic/RoadNetworkCreator_by_View/input/edges_Nanshan.geojson")
+    # df = gpd.read_file("/home/pcl/traffic/RoadNetworkCreator_by_View/input/edges_Nanshan.geojson")
+    df = gpd.read_file("/home/pcl/traffic/RoadNetworkCreator_by_View/src/tmp_石鼓路.geojson")
     map_visualize(df)
+    
+    
+    
+    from shapely.geometry import LineString
+    
+    line = LineString([(113.932686, 22.583023), (113.932679, 22.583161), (113.932679, 22.583221), (113.932654, 22.583295)])
+    
+    df = gpd.GeoDataFrame( [{"geometry": line}] )
+    
+    df.plot()
+    
+    map_visualize(df)
+    
