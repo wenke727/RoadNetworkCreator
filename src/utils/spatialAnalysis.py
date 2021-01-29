@@ -228,7 +228,6 @@ def hausdorff_bet_polyline( u: LineString or pd.Series, v: LineString or pd.Seri
         double: The directed Hausdorff distance between arrays u and v
     """
     # Trajectory Similarity Measures, Ref: https://www.zhihu.com/question/27213170
-    # TODO interpolation
     def get_coords(tmp):
         # the input could be: geometry or pd.Series with geometry
         if isinstance( tmp, pd.Series ):

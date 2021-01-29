@@ -1,3 +1,4 @@
+#%%
 import os
 import json
 from PIL import Image
@@ -5,6 +6,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import pandas as pd
+from joblib import Parallel, delayed
 from label_helper import resize_pano_img_for_training
 
 
@@ -13,8 +16,10 @@ Y_MAX  = 720 - 10
 Y_AXIS = pd.DataFrame( np.linspace( 240, Y_MAX, (Y_MAX - Y_MIN)//10+1 ).astype(np.int), columns=['y'] )
 
 pano_dir = "/home/pcl/Data/minio_server/panos"
-label_dir = './label_data'
-save_path = "/home/pcl/Data/TuSimple/LaneDetection"
+label_dir = '../../../data/label_data'
+save_path = "../../../data/LaneDetection"
+# save_path = "/home/pcl/Data/TuSimple/LaneDetection"
+# mv * /home/pcl/Data/TuSimple/LaneDetection
 
 class Lane_label():
     def __init__(self, pid, img_folder, json_folder, pic_format='jpg', factor=1280/1024):
@@ -32,13 +37,17 @@ class Lane_label():
 
     def poly_fitting(self, line):
         x, y = line[:,0], line[:,1]
-        f1 = np.polyfit( y, x, 3 )
-        p1 = np.poly1d(f1)
+        # f1 = np.polyfit( y, x, 3 )
+        # p1 = np.poly1d(f1)
 
         upper, lower = int(y.max()/10)*10, int(y.min()/10)*10
         pred_y = np.linspace(lower, upper, num = int((upper-lower)/10 + 1) )
-        pred_x = p1(pred_y)
-
+        # pred_x = p1(pred_y)
+        if y[0] > y[-1]:
+            pred_x = np.interp( pred_y, y[::-1], x[::-1] )
+        else:
+            pred_x = np.interp( pred_y, y, x )
+            
         df = Y_AXIS.merge(pd.DataFrame( {'x': pred_x, 'y': pred_y} ), on='y', how='outer').fillna(-2).astype(np.int)
         # Warming: 需要统一尺寸, height大于720的直接删除
         df.query( f" y <= {Y_MAX} ", inplace=True )
@@ -58,22 +67,32 @@ class Lane_label():
 
     def plot(self, fn=None ):
         img = Image.open(self.img_path)
-        
         plt.imshow(img)
         for l in self.df.lines:
             l = np.array( [ [x, y] for x, y in l if x >= 0 ])
             plt.plot( l[:,0], l[:,1], '.' )
 
-        # plt.ylim( img.size[1] )
         plt.axis('off')
-        # plt.xlim( 0, img.size[0] )
         plt.tight_layout(pad=0)
         plt.margins(0,0)
         if fn is not None:
-            plt.savefig( fn, pad_inches=0, bbox_inches='tight' , dpi=200 )
+            plt.savefig( fn, pad_inches=0, bbox_inches='tight' , dpi=98 )
+        plt.close()
+        return 
 
-def main():
+
+def scp_to_remote_server_89():
+    password = 'root'
+    user     = 'root'
+    ip       = '192.168.203.89'
+    dst      = '/root/TuSimple'
     
+    res = os.popen( f" sshpass -p {password} scp -P 7022 -r {save_path} {user}@{ip}:{dst}" ).read()
+    
+    return     
+
+
+def label_process_batch( origin_img=True, write_label_to_img=True):
     # rename label
     for fn in os.listdir( label_dir ):
         lst = fn.split("_")
@@ -83,10 +102,11 @@ def main():
 
     # resize pano img to the training size
     f_lst = os.listdir(label_dir)
-    for label_file in tqdm(f_lst, 'move and resize imgs: '):
-        fn = label_file.split(".")[0] + ".jpg"
-        # print(os.path.join( save_path, 'clips', fn ))
-        resize_pano_img_for_training( os.path.join( pano_dir, fn ), os.path.join( save_path, 'clips', fn ))
+    if origin_img:
+        for label_file in tqdm(f_lst, 'move and resize imgs: '):
+            fn = label_file.split(".")[0] + ".jpg"
+            # print(os.path.join( save_path, 'clips', fn ))
+            resize_pano_img_for_training( os.path.join( pano_dir, fn ), os.path.join( save_path, 'clips', fn ))
 
     # transfer lables
     res = []
@@ -94,9 +114,13 @@ def main():
     for label_file in tqdm(f_lst, "tranfer labels"):
         fn = label_file.split(".")[0]
         try:
-            label_pano = Lane_label( fn,  os.path.join( save_path, 'clips'), label_dir )
+            label_pano = Lane_label( fn, os.path.join( save_path, 'clips'), label_dir )
             record = label_pano.label_to_json()
             res.append(record)
+            
+            if write_label_to_img: label_pano.plot( os.path.join( save_path, 'gt', fn) )
+            del label_pano
+
         except:
             error_lst.append(fn)
 
@@ -106,9 +130,71 @@ def main():
     with open(f'{save_path}/label_data_nanshan_0126_val.json', 'w') as f:
         f.write( '\n'.join([ i.replace(f"{save_path}/", '') for i in  res[-500:]])+"\n" )
 
+
+def label_process( f_lst, origin_img=True, write_label_to_img=True):
+    # rename label
+    for fn in f_lst:
+        lst = fn.split("_")
+        if len(lst) <= 4:
+            continue
+        os.rename( os.path.join( label_dir, fn ), os.path.join( label_dir, "_".join(lst[-4:]) ) )
+
+    # resize pano img to the training size
+    if origin_img:
+        for label_file in f_lst:
+            fn = label_file.split(".")[0] + ".jpg"
+            resize_pano_img_for_training( os.path.join( pano_dir, fn ), os.path.join( save_path, 'clips', fn ))
+
+    # transfer lables
+    res = []
+    error_lst = []
+    for label_file in f_lst:
+        fn = label_file.split(".")[0]
+        try:
+            label_pano = Lane_label( fn, os.path.join( save_path, 'clips'), label_dir )
+            record = label_pano.label_to_json()
+            res.append(record)
+            
+            if write_label_to_img: label_pano.plot( os.path.join( save_path, 'gt', fn) )
+            del label_pano
+
+        except:
+            error_lst.append(fn)
+
+    return res
+
+
+def label_process_parrallel():
+    num = 50
+    
+    data = pd.DataFrame(os.listdir( label_dir ), columns=['pid'])
+    data_grouped = data.groupby(data.index/num)
+    results = Parallel(n_jobs=num)(delayed(label_process)(group.pid.values) for name, group in data_grouped)
+
+    res = []
+    for i in results: res += i
+
+    with open(f'{save_path}/label_data_nanshan_0129.json', 'w') as f:
+        f.write( '\n'.join([ i.replace(f"{save_path}/", '') for i in  res[:-500]])+"\n" )
+
+    with open(f'{save_path}/label_data_nanshan_0129_val.json', 'w') as f:
+        f.write( '\n'.join([ i.replace(f"{save_path}/", '') for i in  res[-500:]])+"\n" )
+
+
+def copy_to_LSTR_docker():
+    dst = "/home/pcl/Data/TuSimple"
+    os.popen( f" cp -r {save_path} {dst}" )
+    os.popen( f" cp {save_path} {dst}" )
+    
+    return
+
 if  __name__ == '__main__':
-    main()
-        
+    # label_process(os.listdir( label_dir ))
+    label_process_parrallel()
+
+    # copy_to_LSTR_docker()
+    # scp_to_remote_server_89()
+    
     # label_pano = Lane_label( '09005700011601091410301692P', './', './' )
     # record = label_pano.label_to_json()
 
@@ -117,7 +203,23 @@ if  __name__ == '__main__':
     
     # label_pano.plot('./test.jpg')
 
+    # transfer to LSTR docker
+
+    
+
+# from ..utils.utils import clear_folder
+
+# clear_folder( "../../../data/label_data" )
+
+# #%%
+# import zipfile
+# import rarfile
+# zip_folder ='/home/pcl/Data/minio_server/label_data'
+
+# fn_lst = os.listdir(zip_folder)
 
 
+# f = zipfile.ZipFile(os.path.join(zip_folder, fn_lst[0]) )
 
-
+# rf = rarfile.RarFile(os.path.join(zip_folder, fn_lst[0])) 
+# rf.extractall(label_dir+"/test") 

@@ -11,7 +11,12 @@ def load_config(fn=None):
 
     return config
 
+def clear_folder(folder = '/home/pcl/Data/minio_server/panos_data/Futian/益田路'):
+    os.popen( f"cd {folder}; rm *" )
+    return 
+
 
 if __name__ == "__main__":
     config = load_config()
+    clear_folder( "../../../data/label_data" )
     pass

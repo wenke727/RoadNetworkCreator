@@ -2,6 +2,7 @@ import pandas as pd
 import geopandas as gpd
 import numpy as np
 from shapely.geometry import Point
+from collections import defaultdict, deque
 
 from .geo_plot_helper import map_visualize
 
@@ -50,7 +51,12 @@ class Node:
         return True
 
 class Digraph:
-    def __init__(self, v=0, edges=None, *args, **kwargs):
+    def __init__(self, edges=None, *args, **kwargs):
+        """[summary]
+
+        Args:
+            edges ([list], optional): [description]. Defaults to None.
+        """
         self.graph = {}
         self.prev = {}
         if edges is not None:
@@ -177,4 +183,61 @@ class Digraph:
         self.prev = prev_back
         
         return result
+
+
+class LongestPath:
+    """
+    @param n: The number of nodes
+    @param starts: One point of the edge
+    @param ends: Another point of the edge
+    @param lens: The length of the edge
+    @return: Return the length of longest path on the tree.
+    """
+    def __init__(self, edges:pd.DataFrame, origin):
+        starts, ends, lens = edges.start.values, edges.end.values, edges.length.values
+        graph = self.build_graph(starts, ends, lens)
+        self.graph = graph
+        
+        start, _, _  = self.bfs_helper(graph, origin)
+        end, self.length, path = self.bfs_helper(graph, start)
+        self.path = self.get_path(start, end, path)
+
+        return
+    
+    def build_graph(self, starts, ends, lens):
+        graph = defaultdict(list)
+        for i in range(len(starts)):
+            graph[starts[i]].append((starts[i], ends[i], lens[i]))
+            graph[ends[i]].append((ends[i], starts[i], lens[i]))
+            
+        return graph
+
+    def bfs_helper(self, graph, start):
+        queue = deque([(start, 0)])
+        path = {start: None}
+        end, max_length = 0, 0
+        
+        while queue:
+            cur, sum_length = queue.pop()
+            max_length = max(max_length, sum_length)
+            if max_length == sum_length:
+                end = cur
+
+            for _, nxt, edge_len in graph[cur]:
+                if nxt in path:
+                    continue
+
+                path[nxt] = cur
+                queue.appendleft((nxt, sum_length + edge_len))
+
+        return end, max_length, path
+
+    def get_path(self, start, end, visit):
+        res = []
+        cur = end
+        while cur in visit:
+            res.append(cur)
+            cur = visit[cur]
+        
+        return res[::-1]
 
