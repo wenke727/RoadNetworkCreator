@@ -382,7 +382,7 @@ def traverse_panos_by_road_name(road_name, buffer=300, max_level=300, visualize=
         [type]: [description]
     """
 
-    # buffer=500; max_level=400; visualize=True; save=True; road_name = '打石一路'
+    # buffer=500; max_level=400; visualize=True; save=True; road_name = '五和大道'
     df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
     # map_visualize(df_roads)
     starts  = get_road_origin_points(df_roads)
@@ -432,7 +432,9 @@ if __name__ == "__main__":
         '香梅路', '皇岗路', '福田路', '民田路', '福田中心四路', '福田中心五路',  '红树林路',
         '福强路', '福民路', '福华一路', '福中路', '福中一路', '深南中路', '红荔路', '红荔西路', '莲花路', '笋岗西路', '侨香路'
     ]
-    lst = ['深南东路','京港澳高速']
+    
+    """ 龙岗区 """
+    lst = ['贝尔路','稼先路']
     e_lst = []
     for road_name in lst:
         try:
@@ -444,3 +446,88 @@ if __name__ == "__main__":
     
     pass
 
+
+
+# %%
+#%%
+starts = starts
+
+df = pd.DataFrame(pd.Series(starts[1:]), columns=['input'])
+
+
+
+buffer=500; max_level=400; visualize=True; save=True; road_name = '打石一路'
+config = {"area": road_buffer, 'pano_id': None, "max_level": max_level, "console_log":True, "auto_save_db": False}
+
+
+visited = bfs_helper( *starts[0], **config )
+
+
+
+
+#%%
+#! Parrallel
+
+from joblib import Parallel, delayed
+import pandas as pd
+import multiprocessing as mp
+
+MAX_JOBS = int(mp.cpu_count()) 
+
+def apply_parallel(func, data:pd.DataFrame, params='id', n_jobs = MAX_JOBS, verbose=0, *args, **kwargs):
+    if data.shape[0] < n_jobs:
+        n_jobs = data.shape[0]
+        
+    data.loc[:,'group'] = data.index % n_jobs
+    df = data.groupby('group')
+    
+    results = Parallel(
+        n_jobs=n_jobs, verbose=verbose)(
+            delayed(parallel_helper)(func, group, params, *args, **kwargs) for name, group in df 
+        )
+    
+    print("Done!")
+    return results
+
+def parallel_helper(func, data:pd.DataFrame, params, *args, **kwargs):
+    res = []
+    for index, item in data.iterrows():
+        # res.append( item[att] )
+        res.append( func( *item[params], *args, **kwargs ))
+    
+    return res
+
+
+# parallel_helper(bfs_helper, df[:1], 'input', **config)
+res = apply_parallel(bfs_helper, df, 'input', verbose=1,**config)
+
+len(res)
+
+visited = []
+for i in res:
+    for j in i:
+        visited += list(j)
+
+len(set(visited))
+
+
+# 完善这一块
+pd.DataFrame( visited ).drop_duplicates().to_csv("./visited.csv")
+
+
+
+# apply_parallel( bfs_helper,  )
+# %%
+
+import time
+print(time.time())
+visited = set()
+level = 0
+
+for p in tqdm(starts, desc=road_name):
+    log_extra_info = f"{road_name}, {level+1}/{len(starts)}"
+    temp = bfs_helper(*p, road_buffer, pano_id=None, max_level=max_level, console_log=True, log_extra_info=log_extra_info, auto_save_db=False)
+    visited = visited.union(temp)
+    level += 1
+
+print(time.time())

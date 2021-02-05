@@ -3,13 +3,13 @@ import os
 import pickle
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 import matplotlib.pyplot as plt
 from haversine import haversine
 from shapely.geometry import Point
 from tqdm import tqdm
 
 from pano_img import get_staticimage, traverse_panos_by_rid, PANO_log, get_pano_ids_by_rid
-from road_network import OSM_road_network
 from db.db_process import load_from_DB, extract_connectors_from_panos_respond
 from utils.geo_plot_helper import map_visualize
 from utils.spatialAnalysis import linestring_length
@@ -17,9 +17,9 @@ from utils.utils import load_config
 from utils.classes import Digraph, LongestPath
 from utils.spatialAnalysis import *
 from labels.label_helper import crop_img_for_lable
-# from utils.utils import clear_folder
+from road_network import OSM_road_network
 
-# TODO 梳理函数名，感觉现在的很乱；
+# TODO 梳理函数名,感觉现在的很乱
 # TODO 匹配完之后输出一张照片示意图，说明前行的方向
 DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
 connecters = extract_connectors_from_panos_respond( DB_pano_base, DB_roads )
@@ -35,11 +35,14 @@ linestring_length(DB_roads, True)
 osm_shenzhen = pickle.load(open("/home/pcl/traffic/data/input/road_network_osm_shenzhen.pkl", 'rb') )
 df_nodes, df_edges = osm_shenzhen.nodes, osm_shenzhen.edges
 
+
 # TODO initial; road network process
 df_edges.reset_index(drop=True, inplace=True)
 df_edges.loc[:,'rid'] = df_edges.loc[:,'rid'].astype(np.int)
 
 #%%
+
+
 def traverse_panos_in_district_level():
     """遍历所有links的街景图片
     """
@@ -54,6 +57,10 @@ def traverse_panos_in_district_level():
 
 def check_pid_duplication( folder = '/home/pcl/Data/minio_server/panos_data/Futian/益田路' ):
     # check whether there is any pid dulplicate in the folder 
+    if not os.path.exists(folder): 
+        os.mkdir(folder)
+        return 
+    
     lst = os.listdir(folder)
     df = pd.DataFrame(lst, columns=['fn'])
     df.loc[:, 'pid'] = df.fn.apply( lambda x: x.split("_")[-2] )
@@ -186,12 +193,20 @@ def traverse_panos_by_rid(rid, log=None):
     
     df_pids = get_pano_ids_by_rid(rid)
     pano_lst = df_pids[['Order','PID', 'DIR']].values
+    length = len(pano_lst)
     res, pre_heading = [], 0
     
     for id, (order, pid, heading) in enumerate(pano_lst):
+        if id == 0 or id == length-1:
+            continue
+        
         if heading == 0 and id != 0:   # direction, inertial navigation
             heading = pre_heading
         
+        if (2 < order < length - 3) and order % 3 != 1:
+            # print(order)
+            continue
+
         fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
         res.append(get_staticimage(pid=pid, heading=heading, path=fn, log_helper=log))
         pre_heading = heading
@@ -250,82 +265,6 @@ def get_pano_imgs_of_road_by_id(road_id, df_edges, df_matching_path=config['data
     return 
 
 
-def get_pano_imgs_of_road_by_id_batch(road_ids, df_edges, road_name, visited=set([])):
-    # road_ids = [183920405,]; road_name="TEST"
-    matching_lst = []
-    for i, id in enumerate(road_ids):
-        # add att `link` to split matching into two part: 1) main road; 2) links
-        # matching = get_panos_of_road_by_id( id, df_edges )
-        matching = get_panos_of_road_and_indentify_lane_type_by_id( id, df_edges )
-        if matching is None: continue
-        matching.loc[:, 'group_num'] = i
-        matching_lst.append(matching)
-
-    if len(matching_lst) == 0: return visited
-    
-    matching = pd.concat(matching_lst)
-    matching.sort_values( by = ['link', 'group_num','index'], ascending =[True, True, True], inplace=True )
-    matching.drop_duplicates('RID', keep ='first', ignore_index=True, inplace=True)
-
-    # obtain panos imgs
-    panos_img_paths = []; road_type_lst = []
-    for rid, road_type in tqdm( matching[['RID', 'link']].values, desc="traverse panos by rid" ):
-        fns = traverse_panos_by_rid(rid=rid, log=PANO_log)
-        panos_img_paths += fns
-        road_type_lst += [road_type] * len(fns)
-
-    # group imgs by road segemts and copy to another folder
-    panos_img_paths = pd.DataFrame({'road_id': ['_'.join(map(str, road_ids))] *len(panos_img_paths), 'road_type':road_type_lst,'path':panos_img_paths})
-    panos_img_paths.reset_index(inplace=True)
-    panos_img_paths.loc[:,'pid'] = panos_img_paths.path.apply( lambda x: x.split("_")[-2] )
-    panos_img_paths.drop_duplicates('pid', keep ='first', ignore_index=True, inplace=True)
-
-    print( "panos_img_paths.query, pid in visited", panos_img_paths.query( f"pid in {list(visited)}").shape[0] )
-    if panos_img_paths.query( f"pid in {list(visited)}").shape[0] > 0:
-        print( "panos_img_paths.query, pid in visited", panos_img_paths.query( f"pid in {list(visited)}").shape[0] )
-
-    panos_img_paths.query( f"pid not in {list(visited)}", inplace=True )
-
-    fn_lst = panos_img_paths[['path','road_type']].values
-    folder = os.path.join( pano_group_dir, f"{road_name}" )
-    if not os.path.exists(folder):os.mkdir(folder)
-    
-    for index, item in enumerate(fn_lst):
-        fn, road_type = item
-        try:
-            crop_img_for_lable(fn,  os.path.join(folder, f"{'' if road_type == 0 else 'links_' }{road_ids[0]}_{index:03d}_{fn.split('/')[-1]}"), False )
-        except:
-            print(f"error: {fn}")
-
-    visited = visited.union( panos_img_paths.pid.values.tolist() )
-    print(f"****** visited: {len(visited)}")
-    return visited
-
-
-def get_pano_imgs_of_road_by_name(road_name, df_edges=df_edges):
-    """[summary]
-
-    Args:
-        road_name ([type]): [description]
-        df_edges ([gpd.GeoDataFrame], optional): [description]. Defaults to df_edges.
-    """
-
-    roads = df_edges.query( f"name == '{road_name}' " )
-    network = Digraph(edges=roads[['s', 'e']].values)
-
-    result = network.combine_edges(roads)
-    visited = set([])
-    
-    print( f'result type: {type(result)}' )
-    for _, road_ids in result:
-        print(road_ids)
-        visited = get_pano_imgs_of_road_by_id_batch(road_ids, df_edges, road_name, visited)
-
-    map_visualize(roads)
-
-    return 
-
-
 def _get_links_by_pids(pids:list, connecters:gpd.GeoDataFrame, cal_length=True):
     links = connecters.query( f"prev_pano_id in {pids}" )
     tmp = links.merge( DB_panos[['PID', 'geometry']], left_on='prev_pano_id', right_on='PID' )
@@ -373,7 +312,7 @@ def _get_road_origin_points(df_roads):
 
 
 def get_panos_of_road_and_indentify_lane_type_by_id( road_id, df_edges, vis=False, save=False, len_thres=50):
-    print("get_panos_of_road_and_indentify_lane_type_by_id: ",road_id)
+    print("\tget_panos_of_road_and_indentify_lane_type_by_id: ",road_id)
     matching = get_panos_of_road_by_id(road_id, df_edges, vis, save)
     if matching is None: return None
 
@@ -421,21 +360,78 @@ def get_panos_of_road_and_indentify_lane_type_by_id( road_id, df_edges, vis=Fals
     return matching.reset_index() 
 
 
-def clear_folder(folder = '/home/pcl/Data/minio_server/panos_data/Futian/益田路'):
-    os.popen( f"cd {folder}; rm *" )
+def get_pano_imgs_of_road_by_id_batch(road_ids, df_edges, road_name, visited=set([])):
+    # road_ids = [183920405,]; road_name="TEST"
+    matching_lst = []
+    for i, id in enumerate(road_ids):
+        # add att `link` to split matching into two part: 1) main road; 2) links
+        matching = get_panos_of_road_and_indentify_lane_type_by_id( id, df_edges )
+        # matching = get_panos_of_road_by_id( id, df_edges )
+        if matching is None: 
+            continue
+        matching.loc[:, 'group_num'] = i
+        matching_lst.append(matching)
+
+    if len(matching_lst) == 0: return visited
+    
+    matching = pd.concat(matching_lst)
+    matching.sort_values( by = ['link', 'group_num','index'], ascending =[True, True, True], inplace=True )
+    matching.drop_duplicates('RID', keep ='first', ignore_index=True, inplace=True)
+
+    # obtain panos imgs
+    panos_img_paths = []; road_type_lst = []
+    for rid, road_type in tqdm( matching[['RID', 'link']].values, desc="traverse panos by rid" ):
+        fns = traverse_panos_by_rid(rid=rid, log=PANO_log)
+        panos_img_paths += fns
+        road_type_lst += [road_type] * len(fns)
+
+    # group imgs by road segemts and copy to another folder
+    panos_img_paths = pd.DataFrame({'road_id': ['_'.join(map(str, road_ids))] *len(panos_img_paths), 'road_type':road_type_lst,'path':panos_img_paths})
+    panos_img_paths.reset_index(inplace=True)
+    panos_img_paths.loc[:,'pid'] = panos_img_paths.path.apply( lambda x: x.split("_")[-2] )
+    panos_img_paths.drop_duplicates('pid', keep ='first', ignore_index=True, inplace=True)
+
+    # if panos_img_paths.query( f"pid in {list(visited)}").shape[0] > 0:
+    #     print( "panos_img_paths.query, pid in visited", panos_img_paths.query( f"pid in {list(visited)}").shape[0] )
+    panos_img_paths.query( f"pid not in {list(visited)}", inplace=True )
+
+    fn_lst = panos_img_paths[['path','road_type']].values
+    folder = os.path.join( pano_group_dir, f"{road_name}" )
+    if not os.path.exists(folder):os.mkdir(folder)
+    
+    for index, item in enumerate(fn_lst):
+        fn, road_type = item
+        try:
+            crop_img_for_lable(fn,  os.path.join(folder, f"{'' if road_type == 0 else 'links_' }{road_ids[0]}_{index:03d}_{fn.split('/')[-1]}"), False )
+        except:
+            print(f"error: {fn}")
+
+    visited = visited.union( panos_img_paths.pid.values.tolist() )
+    print(f"****** visited: {len(visited)}")
+    return visited
+
+
+def get_pano_imgs_of_road_by_name(road_name, df_edges=df_edges):
+    """[summary]
+
+    Args:
+        road_name ([type]): [description]
+        df_edges ([gpd.GeoDataFrame], optional): [description]. Defaults to df_edges.
+    """
+
+    roads = df_edges.query( f"name == '{road_name}' " )
+    network = Digraph(edges=roads[['s', 'e']].values)
+
+    result = network.combine_edges(roads)
+    visited = set([])
+    
+    for _, road_ids in result:
+        print(road_ids)
+        visited = get_pano_imgs_of_road_by_id_batch(road_ids, df_edges, road_name, visited)
+
+    # map_visualize(roads)
+
     return 
-
-road = '福田中心四路'
-folder = f'/home/pcl/Data/minio_server/panos_data/Futian/{road}'
-
-clear_folder(folder)
-
-get_pano_imgs_of_road_by_name(road)
-
-check_pid_duplication(f'/home/pcl/Data/minio_server/panos_data/Futian/{road}')
-# road_id = 666569413
-
-# get_panos_of_road_and_indentify_lane_type_by_id(666569413, df_edges)
 
 
 # %%
@@ -444,72 +440,46 @@ if __name__ == '__main__':
     # traverse_panos_in_district_level()
     # traversed_lst = "福华三路"
     """ 福田区 """
-    lst = [
-        '香蜜湖路', '香梅路', '皇岗路', '福田路', '民田路', '福田中心四路', '福田中心五路',  '红树林路',
-        '福强路', '福民路', '福华一路', '福中路', '福中一路', '深南中路', '红荔路', '红荔西路', '莲花路', '笋岗西路', '侨香路'
-    ]
+    # lst = [
+    #     '香蜜湖路', '香梅路', '皇岗路', '福田路', '民田路', '福田中心四路', '福田中心五路',  '红树林路',
+    #     '福强路', '福民路', '福华一路', '福中路', '福中一路', '深南中路', '红荔路', '红荔西路', '莲花路', '笋岗西路', '侨香路'
+    # ]
     
+    lst = ['民田路', '益田路', '福中一路'
+            '福华一路',
+            '福华路',
+            '福民路',
+            '福田路',
+            '笋岗西路',
+            '红树林路',
+            '红荔西路',
+            '莲花路',
+            '金田路']
     error_lst = []
+    
+    roads = "文锦北路、文锦中路、文锦南路、沙湾路、太白路、东门北路、东门南路、嘉宾路、江背路、和平路、建设路、春风路、人民南路、友谊路、宝安北路、宝安南路、罗沙路、莲塘路、国威路、聚宝路、新秀路、布心路、东湖路、翠竹路、贝丽北路、贝丽南路、水贝一路、水贝二路、田贝一路、田贝二路、田贝三路、田贝四路、湖贝路、乐园路、中兴路、南湖路、晒布路、新园路、松园路、红桂路、红宝路、解放路、金塘路、书城路、万象路、向西路、迎春路、永新路、南庆路、东升路、立新路、人民北路、红岗路、凤凰路、凤翔路、清平路、港莲路、华丽路、金湖路、罗芳路、桂园路、新安路、兴湖路、蛟湖路、洪湖西路、洪湖一路、宝岗路、人民公园路、蔡屋围一路、莲罗路、三号支路、碧波一路、金稻田路、金碧路、聚财路、太宁路、童乐路、莲十路、望桐路、大望大道、新田大道、深南辅道、交通楼三楼、沿河路、延芳路、蜜园路、梨园路、展艺路、柑园路、祝福路、迎宾东路、交通楼一楼、黄贝路、沿河南路、沿河北路、罗湖口岸交通楼、环仓路、北斗路、船步路、翠云路、清水河一路、清水河二路、清水河三路、清水河四路、清水河五路、太安路、东晓路、东昌路、翠茵路、河西环路、洪湖二路、洪湖五路、桃园路、梅园路、北站路、松园南路、松园北路、桂园北路、果园路、果园东路、煤场路、红桂二路、红桂横路、桃丽路、笋田一路、西货场路、河边路、锦湖路、银湖路、迎宾西路、鹏兴路、翠园路、仙湖路、畔山路、怡景路、东门老街、望桐新路、水田一路、水田二路、泥岗路、笋中路、东湖二路、嘉北路、嘉南路、翠山路、鸿业路、东乐路、金洲路"    
+    
+    lst = ['雅园路']
+    # lst = roads.split("、")
     for fn in lst:
         try:
+            folder = f'/home/pcl/Data/minio_server/panos_data/Longgang/{fn}'
+            if os.path.exists(folder):
+                f_lst = os.listdir(folder)
+                for f in f_lst:
+                    if 'jpg' not in f:
+                        continue
+                    tmp = f" rm { os.path.join(folder, f) }"
+                    os.popen( tmp )
+
+            print(fn)
             get_pano_imgs_of_road_by_name(fn)
+            check_pid_duplication(folder)
         except:
             error_lst.append(fn)
     print("crawl failed", error_lst)
-    # crawl failed ['香蜜湖路', '香梅路', '福田中心四路', '福田中心五路', '红荔路']
     
-    
-    """ 旧方法：通过路段的ID来匹配 """
-    # road_name = '打石一路'
-    # map_visualize( df_edges.query( f"name == '{road_name}' " ), lyrs='s', scale=0.01 )
-    # road_ids = df_edges.query( f"name == '{road_name}' " ).rid.unique()
-    # # get_pano_imgs_of_road_by_id(road_id)
-    # get_pano_imgs_of_road_by_id(road_ids[0])
-    # main("北环大道")
-    
-    # road_name = '香蜜湖路'
-    
-    # lst_nanshan = [
-    #     #    "深南大道",
-    #        "月亮湾大道", 
-    #        "南山大道", 
-    #        "科苑大道", 
-    #        "沙河西路", 
-    #        "沙河东路", 
-    #        "滨海大道",
-    #        "留仙大道", 
-    #        "中山园路", 
-    #        "工业大道", 
-    #        "南油大道", 
-    #        "麒麟路",
-    #        "同发路",
-    #        "侨城东路", 
-    #        "茶光路", 
-    #        "龙珠大道", 
-    #        "北环大道", 
-    #        "桂庙路",
-    #        "望海路", 
-    #        "东滨路", 
-    #        "内环路", 
-    #        "兴海大道", 
-    #        "南水路", 
-    #        "港湾大道", 
-    #        "赤湾二号路",
-    #        ]
-    # '新洲路','益田路'
-    # lst = ['金田路']
-    # err = []
-    # for i in lst:
-    #     try:
-    #         print(i)
-    #         main(i)
-    #     except:
-    #         err.append(i)
-            
-    # print(err)
-    # main("广深沿江高速")
-    # main("桂庙路")
-    # main("兴海大道")
-
     pass
 
+
+# %%

@@ -1,7 +1,7 @@
 data:
   DB: postgresql://postgres:123456@192.168.135.32:5432/road_network
   pano_dir: /home/pcl/Data/minio_server/panos
-  pano_group_dir: /home/pcl/Data/minio_server/panos_data/Futian
+  pano_group_dir: /home/pcl/Data/minio_server/panos_data/Longgang
   input_dir: /home/pcl/Data/minio_server/input
   pano_tile_dir: /home/pcl/Data/RoadNetworkCreator/tiles
   log_dir: /home/pcl/traffic/RoadNetworkCreator_by_View/log
