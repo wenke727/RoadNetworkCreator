@@ -292,7 +292,8 @@ for i in res[:10]:
 
 #%%
 # BUG 一条路仅有一个点的情况下，需要更新DIR数值； 终点也需要更新数值
-DB_panos.query("RID=='168fb0-6c88-4d0b-59b0-20a829' ")
+rid = '168fb0-6c88-4d0b-59b0-20a829'
+DB_panos.query(f"RID=='{rid}' ")
 
 
 df_road_with_1_node = DB_panos[['RID', 'PID']].groupby("RID").count().rename(columns={"PID":'count'}).reset_index()
@@ -302,4 +303,6 @@ df_road_with_1_node.query("count==1")
 from db.db_process import load_from_DB, extract_connectors_from_panos_respond
 
 connecters = extract_connectors_from_panos_respond( DB_pano_base, DB_roads )
+
+connecters.query( f"RID == '{rid}' " )
 
