@@ -1,6 +1,7 @@
 #%%
 import os
 import pickle
+from re import S
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -9,8 +10,8 @@ from haversine import haversine
 from shapely.geometry import Point
 from tqdm import tqdm
 
-from pano_img import get_staticimage, traverse_panos_by_rid, PANO_log, get_pano_ids_by_rid
-from db.db_process import load_from_DB, extract_connectors_from_panos_respond
+from pano_img import get_staticimage, PANO_log, get_pano_ids_by_rid
+from db.db_process import load_from_DB, extract_connectors_from_panos_respond, store_to_DB
 from utils.geo_plot_helper import map_visualize
 from utils.spatialAnalysis import linestring_length
 from utils.utils import load_config
@@ -21,6 +22,9 @@ from road_network import OSM_road_network
 
 # TODO 梳理函数名,感觉现在的很乱
 # TODO 匹配完之后输出一张照片示意图，说明前行的方向
+
+# def initialize():
+#     global DB_pano_base, DB_panos, DB_connectors, DB_roads, config, pano_dir, pano_group_dir, DF_matching, osm_shenzhen, df_nodes, df_edges, connecters
 DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
 connecters = extract_connectors_from_panos_respond( DB_pano_base, DB_roads )
 
@@ -40,6 +44,7 @@ df_nodes, df_edges = osm_shenzhen.nodes, osm_shenzhen.edges
 df_edges.reset_index(drop=True, inplace=True)
 df_edges.loc[:,'rid'] = df_edges.loc[:,'rid'].astype(np.int)
 
+
 #%%
 
 
@@ -52,7 +57,7 @@ def traverse_panos_in_district_level():
     links_ft = DB_roads[DB_roads.within(area_futian)]
 
     for RID in tqdm(links_ft.RID.values):
-        traverse_panos_by_rid(RID, PANO_log)
+        traverse_panos_by_rid(RID, DB_panos, PANO_log)
 
 
 def check_pid_duplication( folder = '/home/pcl/Data/minio_server/panos_data/Futian/益田路' ):
@@ -74,7 +79,7 @@ def check_pid_duplication( folder = '/home/pcl/Data/minio_server/panos_data/Futi
     return
 
 
-def matching_panos_path_to_network( road, DB_roads=DB_roads, vis=True, vis_step=False, save_fig=True, buffer_thres = 0.00005, angel_thres = 30):
+def _matching_panos_path_to_network( road, DB_roads=DB_roads, vis=True, vis_step=False, save_fig=True, buffer_thres = 0.00005, angel_thres = 30):
     """
     find the matching path of panos for a special road based on the frechet distance
     """
@@ -142,6 +147,7 @@ def matching_panos_path_to_network( road, DB_roads=DB_roads, vis=True, vis_step=
 
 
 def get_panos_of_road_by_id(road_id, df_edges, vis=False, save=False):
+    # ! # FIXME
     """通过frnchet距离匹配某条道路的百度街景pano轨迹，并输出
 
     Args:
@@ -152,13 +158,18 @@ def get_panos_of_road_by_id(road_id, df_edges, vis=False, save=False):
         [type]: [description]
     """
     dis_thes = 50; angle_thre = 30
-    result = []
 
     road_osm = df_edges.query( f"rid == {road_id}" )
+    
+    # 可视化
+    fig, ax = map_visualize(road_osm, scale=0.1)
+    road_osm.plot(column='index', cmap='jet', ax=ax, legend=True)
+    
     linestring_length(road_osm, True)
 
+    result = []
     for i in range(road_osm.shape[0]):
-        road_candidates, rid = matching_panos_path_to_network( road_osm.iloc[i], vis=False, vis_step=False )
+        road_candidates, rid = _matching_panos_path_to_network( road_osm.iloc[i], vis=False, vis_step=False )
         if road_candidates is not None:
             result.append(road_candidates)
     
@@ -172,8 +183,9 @@ def get_panos_of_road_by_id(road_id, df_edges, vis=False, save=False):
     
     # 看下顺序是否满足要求
     if vis:
-        fig, ax = map_visualize(road_osm, scale=0.01, lyrs='s', color='black', figsize=(20,20))
-        matching.plot(ax=ax, color='red', linestyle="-.")
+        fig, ax = map_visualize(road_osm, scale=0.01, lyrs='s', color='black', figsize=(10,10), label='road line')
+        matching.plot(ax=ax, color='red', linestyle="-.", label='matching panos')
+        plt.legend()
 
     if save:
         matching.to_file( f'../output/tmp_road_match_{road_id}_{id}.geojson', driver="GeoJSON" )
@@ -181,7 +193,7 @@ def get_panos_of_road_by_id(road_id, df_edges, vis=False, save=False):
     return matching
 
 
-def traverse_panos_by_rid(rid, log=None):
+def traverse_panos_by_rid(rid, DB_panos, log=None):
     """obtain the panos in road[rid] 
 
     Args:
@@ -191,7 +203,7 @@ def traverse_panos_by_rid(rid, log=None):
         [type]: [description]
     """
     
-    df_pids = get_pano_ids_by_rid(rid)
+    df_pids = get_pano_ids_by_rid(rid, DB_panos)
     pano_lst = df_pids[['Order','PID', 'DIR']].values
     length = len(pano_lst)
     res, pre_heading = [], 0
@@ -236,7 +248,7 @@ def group_panos_by_road(road_id, df_matching, df_edges=df_edges):
     return folder
 
 
-def get_pano_imgs_of_road_by_id(road_id, df_edges, df_matching_path=config['data']['df_matching']):
+def crawl_pano_imgs_by_roadid(road_id, df_edges, df_matching_path=config['data']['df_matching']):
     """获取匹配的id
 
     Args:
@@ -252,7 +264,7 @@ def get_pano_imgs_of_road_by_id(road_id, df_edges, df_matching_path=config['data
 
     res = []
     for rid in tqdm( matching.RID.values ):
-        res += traverse_panos_by_rid(rid=rid, log=PANO_log)
+        res += traverse_panos_by_rid(rid=rid, DB_pano=DB_panos,log=PANO_log)
 
     res = pd.DataFrame({'road_id': [road_id] *len(res) ,'path':res})
     res.reset_index(inplace=True)
@@ -312,6 +324,7 @@ def _get_road_origin_points(df_roads):
 
 
 def get_panos_of_road_and_indentify_lane_type_by_id( road_id, df_edges, vis=False, save=False, len_thres=50):
+    
     print("\tget_panos_of_road_and_indentify_lane_type_by_id: ",road_id)
     matching = get_panos_of_road_by_id(road_id, df_edges, vis, save)
     if matching is None: return None
@@ -360,7 +373,7 @@ def get_panos_of_road_and_indentify_lane_type_by_id( road_id, df_edges, vis=Fals
     return matching.reset_index() 
 
 
-def get_pano_imgs_of_road_by_id_batch(road_ids, df_edges, road_name, visited=set([])):
+def crawl_pano_imgs_by_roadid_batch(road_ids, df_edges, road_name, visited=set([])):
     # road_ids = [183920405,]; road_name="TEST"
     matching_lst = []
     for i, id in enumerate(road_ids):
@@ -381,7 +394,7 @@ def get_pano_imgs_of_road_by_id_batch(road_ids, df_edges, road_name, visited=set
     # obtain panos imgs
     panos_img_paths = []; road_type_lst = []
     for rid, road_type in tqdm( matching[['RID', 'link']].values, desc="traverse panos by rid" ):
-        fns = traverse_panos_by_rid(rid=rid, log=PANO_log)
+        fns = traverse_panos_by_rid(rid=rid, DB_panos=DB_panos, log=PANO_log)
         panos_img_paths += fns
         road_type_lst += [road_type] * len(fns)
 
@@ -420,6 +433,7 @@ def get_pano_imgs_of_road_by_name(road_name, df_edges=df_edges):
     """
 
     roads = df_edges.query( f"name == '{road_name}' " )
+    map_visualize(roads)
     network = Digraph(edges=roads[['s', 'e']].values)
 
     result = network.combine_edges(roads)
@@ -427,9 +441,8 @@ def get_pano_imgs_of_road_by_name(road_name, df_edges=df_edges):
     
     for _, road_ids in result:
         print(road_ids)
-        visited = get_pano_imgs_of_road_by_id_batch(road_ids, df_edges, road_name, visited)
+        visited = crawl_pano_imgs_by_roadid_batch(road_ids, df_edges, road_name, visited)
 
-    # map_visualize(roads)
 
     return 
 
@@ -459,7 +472,7 @@ if __name__ == '__main__':
     
     roads = "文锦北路、文锦中路、文锦南路、沙湾路、太白路、东门北路、东门南路、嘉宾路、江背路、和平路、建设路、春风路、人民南路、友谊路、宝安北路、宝安南路、罗沙路、莲塘路、国威路、聚宝路、新秀路、布心路、东湖路、翠竹路、贝丽北路、贝丽南路、水贝一路、水贝二路、田贝一路、田贝二路、田贝三路、田贝四路、湖贝路、乐园路、中兴路、南湖路、晒布路、新园路、松园路、红桂路、红宝路、解放路、金塘路、书城路、万象路、向西路、迎春路、永新路、南庆路、东升路、立新路、人民北路、红岗路、凤凰路、凤翔路、清平路、港莲路、华丽路、金湖路、罗芳路、桂园路、新安路、兴湖路、蛟湖路、洪湖西路、洪湖一路、宝岗路、人民公园路、蔡屋围一路、莲罗路、三号支路、碧波一路、金稻田路、金碧路、聚财路、太宁路、童乐路、莲十路、望桐路、大望大道、新田大道、深南辅道、交通楼三楼、沿河路、延芳路、蜜园路、梨园路、展艺路、柑园路、祝福路、迎宾东路、交通楼一楼、黄贝路、沿河南路、沿河北路、罗湖口岸交通楼、环仓路、北斗路、船步路、翠云路、清水河一路、清水河二路、清水河三路、清水河四路、清水河五路、太安路、东晓路、东昌路、翠茵路、河西环路、洪湖二路、洪湖五路、桃园路、梅园路、北站路、松园南路、松园北路、桂园北路、果园路、果园东路、煤场路、红桂二路、红桂横路、桃丽路、笋田一路、西货场路、河边路、锦湖路、银湖路、迎宾西路、鹏兴路、翠园路、仙湖路、畔山路、怡景路、东门老街、望桐新路、水田一路、水田二路、泥岗路、笋中路、东湖二路、嘉北路、嘉南路、翠山路、鸿业路、东乐路、金洲路"    
     
-    lst = ['雅园路']
+    lst = ['吉华路']
     # lst = roads.split("、")
     for fn in lst:
         try:
@@ -482,4 +495,79 @@ if __name__ == '__main__':
     pass
 
 
-# %%
+if False:
+    
+    # %%
+    road_name = '打石一路'
+
+    roads = df_edges.query( f"name == '{road_name}' " )
+
+    # TODO 有一些分叉需要处理掉
+    matching_0 = get_panos_of_road_by_id(362735582, df_edges, True)
+    matching_1 = get_panos_of_road_by_id(529070115, df_edges, True)
+
+    matching1 = get_panos_of_road_and_indentify_lane_type_by_id(362735582, df_edges, True)
+    matching  = get_panos_of_road_by_id(362735582, df_edges, True)
+
+    road_id = 362735582
+    
+    # %%
+
+# TODO 整理代码
+# road_id = 362735582
+
+# road_osm.iloc[4]
+
+# rid = '42fe8d-9555-1595-7843-afe68c'
+
+# panos = get_pano_ids_by_rid(rid, DB_panos)
+
+# lane_shape_predict_memo = '/home/pcl/Data/minio_server/input/lane_shape_predict_memo.csv'
+# df_pred_memo = pd.read_csv(lane_shape_predict_memo)
+# df_pred_memo.loc[:, 'pred'] = df_pred_memo.pred.apply(lambda x: eval(x))
+# # df_pred_memo.loc[:,'PID'] = df_pred_memo.name.apply(lambda x: x.split('_')[-2])
+# # df_pred_memo.loc[:,'DIR'] = df_pred_memo.name.apply(lambda x: x.split('_')[-1].split('.')[0]).astype(np.int)
+# # df_pred_memo[['PID', 'DIR', 'lane_num', 'name',  'pred']].to_csv( lane_shape_predict_memo, index=False )
+
+
+# panos = panos.merge( df_pred_memo, on=["PID", 'DIR'] )
+
+# from model.lstr import draw_pred_lanes_on_img
+
+# tmp = panos.iloc[0].to_dict()
+# tmp['file'] = tmp['name']
+# tmp['pred'] = eval(tmp['pred'])
+
+# draw_pred_lanes_on_img(tmp, 'tmp.jpg')
+
+
+# for i in range( panos.shape[0] ):
+#     tmp = panos.iloc[i].to_dict()
+#     tmp['file'] = tmp['name']
+#     draw_pred_lanes_on_img(tmp, f'./tmp/{i:02d}.jpg')
+
+
+# # 保存所有的记录
+# # DB_panos = DB_panos.merge( df_pred_memo[["PID", 'DIR','lane_num']], on=["PID", 'DIR'], how='left' ).fillna(-1)
+# # DB_panos.lane_num.value_counts()
+# # store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
+
+
+# # 更新最后一个节点
+# df_last_point = DB_panos[['RID','Order']].groupby('RID').max().reset_index().query('Order > 0').rename(columns={'Order':'max_ord'})
+# df_last_point.loc[:, 'sec_ord'] = df_last_point.max_ord - 1
+# df_last_point = df_last_point.merge( DB_panos[['RID','Order','DIR']], left_on=['RID', 'sec_ord'], right_on=['RID',"Order"] )
+# df_last_point.drop(columns='Order', inplace=True)
+# df_last_point.rename(columns={'DIR': 'dir'}, inplace=True)
+
+
+# DB_panos.loc[:, 'DIR_bak'] = DB_panos.DIR
+# cols = DB_panos.columns
+
+# DB_panos = DB_panos.merge(df_last_point, left_on=['RID',"Order"], right_on=['RID', 'max_ord'], how='left')
+# DB_panos.loc[:, 'DIR'] = (DB_panos.DIR + DB_panos.dir.fillna(0)).astype(np.int)
+# DB_panos = DB_panos[cols]
+
+# DB_panos.query("RID == '69c977-b392-e17d-abc7-1b754f' ")
+
+# store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)

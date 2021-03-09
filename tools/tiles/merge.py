@@ -3,7 +3,7 @@ from PIL import Image
 import os
 
 
-def merge_tiles(f_lst, file_name_catalog = True):
+def merge_tiles(f_lst, file_name_catalog = True, to_fn=None):
     """
     merge tiles into one
     @param: f_lst: tiles list
@@ -42,13 +42,11 @@ def merge_tiles(f_lst, file_name_catalog = True):
                 print(f"数据缺失: {path}")
                 pass
 
-    to_image.save( "merge.jpg" )
+    to_image.save( "merge.jpg" if to_fn is None else to_fn)
     
     return to_image
 
 
+merge_tiles( os.listdir("./imgs"), to_fn = "log01_dink34-1.4-2.5.jpg" )
 
-f_lst = os.listdir("./imgs")
-
-f_lst
 

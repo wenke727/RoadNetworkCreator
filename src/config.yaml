@@ -1,5 +1,5 @@
 data:
-  DB: postgresql://postgres:123456@192.168.135.32:5432/road_network
+  DB: postgresql://postgres:123456@192.168.135.34:5432/road_network
   pano_dir: /home/pcl/Data/minio_server/panos
   pano_group_dir: /home/pcl/Data/minio_server/panos_data/Longgang
   input_dir: /home/pcl/Data/minio_server/input
@@ -7,6 +7,7 @@ data:
   log_dir: /home/pcl/traffic/RoadNetworkCreator_by_View/log
   area: /home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson
   df_matching: /home/pcl/Data/minio_server/input/panos_matching.csv
+  df_pred_memo: /home/pcl/Data/minio_server/input/lane_shape_predict_memo.csv
 osm:
   osm_highway_type_dict:
     motorway: motorway

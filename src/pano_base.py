@@ -89,9 +89,9 @@ def query_pano(x=None, y=None, pano_id=None, visualize=False, add_to_DB=True, ht
     """[summary]
 
     Args:
-        x (float, optional): [description]. Defaults to None.
-        y (float, optional): [description]. Defaults to None.
-        pano_id (str, optional): [description]. Defaults to None.
+        x (float, optional): [Baidu MC coord]. Defaults to None.
+        y (float, optional): [Baidu MC coord]. Defaults to None.
+        pano_id (str, optional): [Baidu pano id]. Defaults to None.
         visualize (bool, optional): [description]. Defaults to False.
         add_to_DB (bool, optional): [description]. Defaults to True.
         http_log (bool, optional): Display or not. Defaults to True.
@@ -103,6 +103,7 @@ def query_pano(x=None, y=None, pano_id=None, visualize=False, add_to_DB=True, ht
         nxt (list): the next query point, pid or coordination
         
     """
+    # TODO panos, 最后一个节点使用惯性标注； connector仅为一个点的的方向
     global DB_panos, DB_pano_base
     res = {'crawl_coord': str(x)+","+str(y) if x is not None else None}
 
@@ -175,6 +176,7 @@ def pano_respond_parser(respond, add_to_DB, visualize, console_log=False, *args,
 
     # panos
     cur_road = roads.iloc[0]
+    # TODO 判断
     panos = gpd.GeoDataFrame(cur_road.Panos)
     panos.loc[:, "RID"] = respond['RID'] = cur_road.RID
     wgs_coords = panos.apply(lambda x: bd_mc_to_wgs_vector(x), axis=1)
@@ -434,7 +436,8 @@ if __name__ == "__main__":
     ]
     
     """ 龙岗区 """
-    lst = ['贝尔路','稼先路']
+    # '贝尔路','稼先路'
+    lst = ['吉华路','百利路']
     e_lst = []
     for road_name in lst:
         try:
@@ -449,18 +452,20 @@ if __name__ == "__main__":
 
 
 # %%
+
+
 #%%
-starts = starts
+# starts = starts
 
-df = pd.DataFrame(pd.Series(starts[1:]), columns=['input'])
-
-
-
-buffer=500; max_level=400; visualize=True; save=True; road_name = '打石一路'
-config = {"area": road_buffer, 'pano_id': None, "max_level": max_level, "console_log":True, "auto_save_db": False}
+# df = pd.DataFrame(pd.Series(starts[1:]), columns=['input'])
 
 
-visited = bfs_helper( *starts[0], **config )
+
+# buffer=500; max_level=400; visualize=True; save=True; road_name = '吉华路'
+# config = {"area": road_buffer, 'pano_id': None, "max_level": max_level, "console_log":True, "auto_save_db": False}
+
+
+# visited = bfs_helper( *starts[0], **config )
 
 
 
@@ -468,66 +473,66 @@ visited = bfs_helper( *starts[0], **config )
 #%%
 #! Parrallel
 
-from joblib import Parallel, delayed
-import pandas as pd
-import multiprocessing as mp
+# from joblib import Parallel, delayed
+# import pandas as pd
+# import multiprocessing as mp
 
-MAX_JOBS = int(mp.cpu_count()) 
+# MAX_JOBS = int(mp.cpu_count()) 
 
-def apply_parallel(func, data:pd.DataFrame, params='id', n_jobs = MAX_JOBS, verbose=0, *args, **kwargs):
-    if data.shape[0] < n_jobs:
-        n_jobs = data.shape[0]
+# def apply_parallel(func, data:pd.DataFrame, params='id', n_jobs = MAX_JOBS, verbose=0, *args, **kwargs):
+#     if data.shape[0] < n_jobs:
+#         n_jobs = data.shape[0]
         
-    data.loc[:,'group'] = data.index % n_jobs
-    df = data.groupby('group')
+#     data.loc[:,'group'] = data.index % n_jobs
+#     df = data.groupby('group')
     
-    results = Parallel(
-        n_jobs=n_jobs, verbose=verbose)(
-            delayed(parallel_helper)(func, group, params, *args, **kwargs) for name, group in df 
-        )
+#     results = Parallel(
+#         n_jobs=n_jobs, verbose=verbose)(
+#             delayed(parallel_helper)(func, group, params, *args, **kwargs) for name, group in df 
+#         )
     
-    print("Done!")
-    return results
+#     print("Done!")
+#     return results
 
-def parallel_helper(func, data:pd.DataFrame, params, *args, **kwargs):
-    res = []
-    for index, item in data.iterrows():
-        # res.append( item[att] )
-        res.append( func( *item[params], *args, **kwargs ))
+# def parallel_helper(func, data:pd.DataFrame, params, *args, **kwargs):
+#     res = []
+#     for index, item in data.iterrows():
+#         # res.append( item[att] )
+#         res.append( func( *item[params], *args, **kwargs ))
     
-    return res
+#     return res
 
 
-# parallel_helper(bfs_helper, df[:1], 'input', **config)
-res = apply_parallel(bfs_helper, df, 'input', verbose=1,**config)
+# # parallel_helper(bfs_helper, df[:1], 'input', **config)
+# res = apply_parallel(bfs_helper, df, 'input', verbose=1,**config)
 
-len(res)
+# len(res)
 
-visited = []
-for i in res:
-    for j in i:
-        visited += list(j)
+# visited = []
+# for i in res:
+#     for j in i:
+#         visited += list(j)
 
-len(set(visited))
+# len(set(visited))
 
 
-# 完善这一块
-pd.DataFrame( visited ).drop_duplicates().to_csv("./visited.csv")
+# # 完善这一块
+# pd.DataFrame( visited ).drop_duplicates().to_csv("./visited.csv")
 
 
 
 # apply_parallel( bfs_helper,  )
 # %%
 
-import time
-print(time.time())
-visited = set()
-level = 0
+# import time
+# print(time.time())
+# visited = set()
+# level = 0
 
-for p in tqdm(starts, desc=road_name):
-    log_extra_info = f"{road_name}, {level+1}/{len(starts)}"
-    temp = bfs_helper(*p, road_buffer, pano_id=None, max_level=max_level, console_log=True, log_extra_info=log_extra_info, auto_save_db=False)
-    visited = visited.union(temp)
-    level += 1
+# for p in tqdm(starts, desc=road_name):
+#     log_extra_info = f"{road_name}, {level+1}/{len(starts)}"
+#     temp = bfs_helper(*p, road_buffer, pano_id=None, max_level=max_level, console_log=True, log_extra_info=log_extra_info, auto_save_db=False)
+#     visited = visited.union(temp)
+#     level += 1
 
-print(time.time())
+# print(time.time())

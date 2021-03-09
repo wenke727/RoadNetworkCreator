@@ -27,7 +27,7 @@ def load_from_DB(new=False):
             gpd.GeoDataFrame( crs='EPSG:4326'), gpd.GeoDataFrame(crs='EPSG:4326'),gpd.GeoDataFrame(crs='EPSG:4326'),gpd.GeoDataFrame(crs='EPSG:4326')
         return DB_pano_base, DB_panos, DB_connectors, DB_roads
 
-    DB_pano_base  = gpd.read_postgis( 'select * from pano_base', geom_col='geometry', con=ENGINE )
+    DB_pano_base = gpd.read_postgis( 'select * from pano_base', geom_col='geometry', con=ENGINE )
     for att in ['Roads', 'Links']:
         DB_pano_base.loc[:, att] = DB_pano_base[att].apply(lambda x: eval(x))
 

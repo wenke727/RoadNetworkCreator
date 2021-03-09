@@ -20,7 +20,7 @@ pano_dir  = config['data']['pano_dir']
 input_dir = config['data']['input_dir']
 PANO_log = LogHelper(log_dir=config['data']['log_dir'], log_name='pano_img.log').make_logger(level=logbook.INFO)
 
-DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
+
 
 
 def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
@@ -69,13 +69,13 @@ def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
     return path
 
 
-def get_pano_ids_by_rid(rid, vis=False):
+def get_pano_ids_by_rid(rid, DB_panos, vis=False):
     tmp = DB_panos.query( f" RID == '{rid}' " )
     if vis: map_visualize(tmp)
     return tmp
 
 
-def traverse_panos_by_rid(rid, log=None):
+def traverse_panos_by_rid(rid, DB_panos, log=None):
     """obtain the panos in road[rid] 
 
     Args:
@@ -84,7 +84,7 @@ def traverse_panos_by_rid(rid, log=None):
     Returns:
         [type]: [description]
     """
-    df_pids = get_pano_ids_by_rid(rid)
+    df_pids = get_pano_ids_by_rid(rid, DB_panos)
 
     # TODO STEP change to other form with more flexible
     pano_lst = df_pids.query( f"Order % @STEPS == 0 and Order != {df_pids.Order.max()}" )[['Order','PID', 'DIR']].values
@@ -136,8 +136,10 @@ def query_static_imgs_by_road(name = '光侨路'):
 if __name__ == "__main__":
     # rid = "7b3a55-bab4-becf-aea3-a9344d"
     # traverse_panos_by_rid(rid)
+    DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
+    
     rids = DB_roads.RID.unique()
 
     for rid in tqdm( rids[::-1] ):
-        traverse_panos_by_rid(rid=rid, log=PANO_log)
+        traverse_panos_by_rid(rid=rid, DB_panos=DB_panos, log=PANO_log)
     pass

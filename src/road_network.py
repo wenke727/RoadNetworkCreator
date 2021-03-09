@@ -1,7 +1,9 @@
+#%%
 import os, sys
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+import pinyin
 from tqdm import tqdm
 import pickle
 # from main import *
@@ -31,7 +33,7 @@ class OSM_road_network:
         self.nodes = None
         self.edges = None
 
-        self.get_road_network_from_osm( fn, mask )
+        # self.get_road_network_from_osm( fn, mask )
         pass
     
     
@@ -250,7 +252,7 @@ class OSM_road_network:
         return edges
 
 
-    def get_road_network_from_osm(self, fn, mask='深圳'):
+    def get_road_network_from_osm(self, fn, mask='深圳', shorten=False):
         # fn = '/home/pcl/Data/minio_server/input/shenzhen_nanshan_road_osm.xml'
         import xml
         dom      = xml.dom.minidom.parse(fn)
@@ -271,8 +273,9 @@ class OSM_road_network:
             self.node_signal = gpd.clip( self.node_signal, area )
 
         nodes_lst = nodes.index.to_list()
-        edges = self._post_parse_way_list(edges, nodes, nodes_lst)
-        self.edges = self._short_link_combinations( edges, nodes_dic, None )
+        self.edges = self._post_parse_way_list(edges, nodes, nodes_lst)
+        if shorten:
+            self.edges = self._short_link_combinations( self.edges, nodes_dic, None )
         # self.node_signal.to_file("../output/signal_shenzhen.geojosn", driver="GeoJSON")
         # edges.to_file("../output/edges_shenzhen.geojosn", driver="GeoJSON")
 
@@ -327,6 +330,35 @@ class OSM_road_network:
         return df_all
 
 
+def tmp_obtain_test_set_panos():
+    # fn = '/home/pcl/Data/minio_server/input/shenzhen_nanshan_road_osm.xml'
+    from utils.osm2gmns.settings import link_type_no_dict, osm_highway_type_dict
+
+    citis = ['北京','上海', '广州', '杭州']
+
+    for city in citis:
+        city_pinyin= pinyin.get(city, format='strip')
+        fn = f'/home/pcl/Data/minio_server/input/{city_pinyin}_road_osm.xml'
+
+        osm_road = OSM_road_network(fn, city)
+        osm_road.get_osm_map_by_city(city)
+        osm_road.get_road_network_from_osm(fn,mask=None)
+        pickle.dump(osm_road, open(f'../input/road_network_osm_{city_pinyin}.pkl', 'wb'))
+        # osm_road = pickle.load( open(f'../input/road_network_osm_{city_pinyin}.pkl', 'rb') )
+
+        osm_road.edges.loc[:, 'link_type_no'] = osm_road.edges.road_type.apply( lambda x: link_type_no_dict[osm_highway_type_dict[x]] if x in osm_highway_type_dict else None )
+        roads = osm_road.edges.query( "link_type_no < 5" )
+        roads.loc[:, 'link'] = roads.road_type.apply(lambda x: 'link' in x)
+
+        records = roads.sample(1000, random_state=1)
+        records.road_type.value_counts()
+
+        records.to_file(f'{city_pinyin}_test_pano.geojson', driver="GeoJSON")
+    
+    pass
+
+#%%
+
 if __name__ == '__main__':
     """ clip a small roadnetwork by bbox from OSM xml file  """
     # fn = '/home/pcl/Data/minio_server/input/shenzhen_road_osm.xml'
@@ -339,14 +371,16 @@ if __name__ == '__main__':
     """" road network data pre-process, extracted from OSM """
     fn = '/home/pcl/Data/minio_server/input/shenzhen_road_osm.xml'
     # fn = '/home/pcl/Data/minio_server/input/shenzhen_nanshan_road_osm.xml'
-    osm_nanshan = OSM_road_network(fn, '深圳')
-    osm_nanshan.edges # 10146 -> 10586
-    pickle.dump(osm_nanshan, open('../input/road_network_osm_shenzhen_0125.pkl', 'wb'))
+    osm_road = OSM_road_network(fn, '深圳')
+    osm_road.get_road_network_from_osm(fn, mask=None, shorten=False)
+    
+    osm_road.edges # 10146 -> 10586
+    pickle.dump(osm_road, open('../input/road_network_osm_shenzhen_0305.pkl', 'wb'))
     
     # osm_shenzhen = pickle.load(open("../input/road_network_osm_shenzhen.pkl", 'rb') )
-    # df_nodes, df_edges = osm_shenzhen.nodes, osm_shenzhen.edges
-    # # df_nodes.to_file( '../input/nodes_Nanshan.geojson', driver="GeoJSON" )
-    # df_edges.to_file( '../input/edges_Nanshan.geojson', driver="GeoJSON" )
+    df_nodes, df_edges = osm_road.nodes, osm_road.edges
+    df_nodes.to_file( '../input/nodes_Shenzhen.geojson', driver="GeoJSON" )
+    df_edges.to_file( '../input/edges_Shenzhen.geojson', driver="GeoJSON" )
     # # osm_shenzhen.node_signal.to_file( '../input/signals_Nanshan.geojson', driver="GeoJSON" )
     # # df_nodes = gpd.read_file( "../input/nodes_Nanshan.geojson" )
     # # df_edges = gpd.read_file( "../input/edges_Nanshan.geojson")
@@ -390,4 +424,6 @@ if __name__ == '__main__':
     # rids = edges.road_id.unique()
 
     # len(rids)
+
+
 

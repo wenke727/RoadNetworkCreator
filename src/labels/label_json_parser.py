@@ -17,9 +17,21 @@ Y_AXIS = pd.DataFrame( np.linspace( 240, Y_MAX, (Y_MAX - Y_MIN)//10+1 ).astype(n
 
 pano_dir = "/home/pcl/Data/minio_server/panos"
 label_dir = '../../../data/label_data'
+label_remove_dir = '../../../data/remove'
 save_path = "../../../data/LaneDetection"
 # save_path = "/home/pcl/Data/TuSimple/LaneDetection"
 # mv * /home/pcl/Data/TuSimple/LaneDetection
+
+labels_remove = set([ x.replace('.jpg', '') for x in  os.listdir(label_remove_dir)])
+
+label_lst = [] 
+for f in os.listdir(label_dir):
+    if f.replace('.json', '') in labels_remove:
+        continue
+    label_lst.append(f)
+
+print( "label_lst: ", len(label_lst))
+
 
 class Lane_label():
     def __init__(self, pid, img_folder, json_folder, pic_format='jpg', factor=1280/1024):
@@ -76,7 +88,7 @@ class Lane_label():
         plt.tight_layout(pad=0)
         plt.margins(0,0)
         if fn is not None:
-            plt.savefig( fn, pad_inches=0, bbox_inches='tight' , dpi=98 )
+            plt.savefig( fn, pad_inches=0, bbox_inches='tight' , dpi=160 )
         plt.close()
         return 
 
@@ -143,6 +155,7 @@ def label_process( f_lst, origin_img=True, write_label_to_img=True):
     if origin_img:
         for label_file in f_lst:
             fn = label_file.split(".")[0] + ".jpg"
+            print(os.path.join( pano_dir, fn ))
             resize_pano_img_for_training( os.path.join( pano_dir, fn ), os.path.join( save_path, 'clips', fn ))
 
     # transfer lables
@@ -164,10 +177,10 @@ def label_process( f_lst, origin_img=True, write_label_to_img=True):
     return res
 
 
-def label_process_parrallel():
+def label_process_parrallel(label_lst=None):
     num = 50
-    
-    data = pd.DataFrame(os.listdir( label_dir ), columns=['pid'])
+    label_lst = os.listdir( label_dir ) if label_lst is not None else label_lst
+    data = pd.DataFrame(label_lst, columns=['pid'])
     data_grouped = data.groupby(data.index/num)
     results = Parallel(n_jobs=num)(delayed(label_process)(group.pid.values) for name, group in data_grouped)
 
@@ -190,7 +203,7 @@ def copy_to_LSTR_docker():
 
 if  __name__ == '__main__':
     # label_process(os.listdir( label_dir ))
-    label_process_parrallel()
+    label_process_parrallel(label_lst)
 
     # copy_to_LSTR_docker()
     # scp_to_remote_server_89()
