@@ -2,15 +2,30 @@ import os, sys
 import geopandas as gpd
 import pandas as pd
 from sqlalchemy import create_engine
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 
 sys.path.append("..") 
 from utils.utils import load_config
-from utils.spatialAnalysis import create_polygon_by_bbox
 
 config   = load_config()
 pano_dir = config['data']['pano_dir']
 ENGINE   = create_engine(config['data']['DB'])
+
+
+def create_polygon_by_bbox(bbox):
+    """creaet polygon by bbox(min_x, min_y, max_x, max_y)
+
+    Args:
+        bbox (list): [min_x, min_y, max_x, max_y]
+
+    Returns:
+        Polygon
+    """
+
+    coords = [bbox[:2], [bbox[0], bbox[3]],
+              bbox[2:], [bbox[2], bbox[1]], bbox[:2]]
+    
+    return Polygon(coords)
 
 
 def get_features(feature, bbox=None, in_sys='wgs84'):
@@ -54,3 +69,6 @@ if __name__ == '__main__':
     res = get_features(feature='line', bbox=[113.929807, 22.573702, 113.937680, 22.578734])
 
     map_visualize(res)
+    
+    
+    res.head(2).to_json()

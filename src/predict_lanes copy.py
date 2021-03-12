@@ -4,6 +4,7 @@ import shutil
 import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import cv2
 from road_network import OSM_road_network
 
 from db.features import get_features
@@ -177,15 +178,33 @@ def get_panos_imgs_by_bbox():
     res    = []
     
     # features = get_features('line', bbox=[113.929807, 22.573702, 113.937680, 22.578734])
-    # bbox=[113.92348,22.57034, 113.94372,22.5855] # 留仙洞区域
-    bbox=[113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
+    bbox=[113.92348,22.57034, 113.94372,22.5855] # 留仙洞区域
+    # bbox=[113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
+    # bbox = [114.04133,22.52903, 114.0645,22.55213] # 福田核心城区
     features = get_features('line', bbox=bbox)
     map_visualize(features)
 
     for rid in tqdm(features.RID.unique()):
-        info, _ = traverse_panos_by_rid(rid, DB_panos, log=PANO_log)
+        info, _ = traverse_panos_by_rid(rid, DB_panos, log=PANO_log, all=True)
         res += info
     len(res)
+    
+    
+    rids = ['ee0530-118d-1788-6960-40a917', '3e9933-e732-1db9-61dc-ee8b54',
+       '69a92f-4240-0901-4dfb-42b25a', '9ac2be-1409-219f-8eae-045791',
+       '7a88c4-e2de-1f0a-ce71-210b8f', '9aa056-13a8-7161-f27f-29bdc0',
+       '00046f-a910-b5a7-a510-882479', '9b6a92-19d2-c73b-b682-a12e82',
+       '195c6f-aaf7-fb2f-ddbb-df8f5a', 'd9eb18-4ee1-d36c-f6ef-74f80d',
+       '31b7c3-40c5-f0d3-5716-a19099', 'dfbb1c-5d1b-dd32-f0f6-e73b50',
+       '697020-7aff-d171-b4e5-0738e2', '091bf8-720c-19ca-50a2-d230fd',
+       'bb985a-e5ce-4c49-17b0-3c8152', '1e701a-5974-1c43-beeb-1e97ba']
+    
+
+    for rid in tqdm(rids):
+        info, _ = traverse_panos_by_rid(rid, DB_panos, log=PANO_log, all=True)
+        res += info
+    len(res)
+       
     
     if not os.path.exists(folder): os.mkdir(folder)
 

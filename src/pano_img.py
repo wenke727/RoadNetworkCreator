@@ -51,16 +51,20 @@ def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
         f.write(file.read())
         f.flush()
         f.close()
-        
-    except urllib.error as e:
-        # FIXME http.client.IncompleteRead: IncompleteRead(114291 bytes read, 502762 more expected), 
+    except:
         if log_helper is not None: 
-            if hasattr( e, 'code' ):
-                log_helper.error(f'crawled url failed: {url}, {e.code} ')
-            if hasattr( e, 'reason' ):
-                log_helper.error(f'crawled url failed: {url}, for {e.reason}')
-    except Exception as e:
-        log_helper.error(f'crawled url failed: {url}, {str(e)}')
+            log_helper.error(f'crawled url failed: {url} ')
+        time.sleep( random.uniform(30, 120) )
+
+    # except urllib.error as e:
+    #     # FIXME http.client.IncompleteRead: IncompleteRead(114291 bytes read, 502762 more expected), 
+    #     if log_helper is not None: 
+    #         if hasattr( e, 'code' ):
+    #             log_helper.error(f'crawled url failed: {url}, {e.code} ')
+    #         if hasattr( e, 'reason' ):
+    #             log_helper.error(f'crawled url failed: {url}, for {e.reason}')
+    # except Exception as e:
+    #     log_helper.error(f'crawled url failed: {url}, {str(e)}')
 
     # except http_client.IncompleteRead as e:
     #     if log_helper is not None: 
@@ -75,7 +79,7 @@ def get_pano_ids_by_rid(rid, DB_panos, vis=False):
     return tmp
 
 
-def traverse_panos_by_rid(rid, DB_panos, log=None):
+def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
     """obtain the panos in road[rid] 
 
     Args:
@@ -84,17 +88,28 @@ def traverse_panos_by_rid(rid, DB_panos, log=None):
     Returns:
         [type]: [description]
     """
+    
     df_pids = get_pano_ids_by_rid(rid, DB_panos)
-
-    # TODO STEP change to other form with more flexible
-    pano_lst = df_pids.query( f"Order % @STEPS == 0 and Order != {df_pids.Order.max()}" )[['Order','PID', 'DIR']].values
-    res = []
+    
+    pano_lst = df_pids[['Order','PID', 'DIR']].values
+    length = len(pano_lst)
+    res, pre_heading = [], 0
+    
     for id, (order, pid, heading) in enumerate(pano_lst):
-        fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
-        # print(fn)
-        res.append(get_staticimage( pid=pid, heading=heading, path=fn, log_helper=log ))
+        if heading == 0 and id != 0:   # direction, inertial navigation
+            heading = pre_heading
+        
+        if not all:
+            if length > 3 and order % 3 != 1:
+                # print(order)
+                continue
 
-    return res
+        fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
+        res.append(get_staticimage(pid=pid, heading=heading, path=fn, log_helper=log))
+        pre_heading = heading
+        
+    return res, df_pids
+
 
 
 def traverse_panos(df_panos):

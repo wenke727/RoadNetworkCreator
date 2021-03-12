@@ -37,10 +37,20 @@ def map_visualize(df: gpd.GeoDataFrame,
         fig, ax = plt.subplots(1, 1, figsize=figsize)
     
     df.plot(color = color, ax=ax, zorder=1, *args, **kwargs)
-    # df.plot(color = color, ax=ax, zorder=1)
+    # df.plot(color = color, zorder=1)
 
     [x0, x1], [y0, y1] = plt.xlim(), plt.ylim()
     gap_x, gap_y = (x1-x0), (y1-y0)
+    [a, b, c, d] = df.total_bounds
+
+    if a == c:
+        x0, x1 = a - 0.001, c + 0.001
+        gap_x = x1- x0
+    
+    if b == d:
+        y0, y1 = b - 0.001, d + 0.001
+        gap_y = y1 - y0
+        
     if not 0.4 <= gap_y / gap_x <= 2.5:
         mid_x, mid_y = (x1+x0)/2, (y1+y0)/2
         gap = max(gap_x, gap_y) * (1 + scale) / 2
@@ -50,8 +60,11 @@ def map_visualize(df: gpd.GeoDataFrame,
                             x1+(x1-x0) * scale, y1-(y0-y1) * scale]
 
     zoom = 15 - int(math.log2(haversine((x0, y1), (x1, y0))/3))
+    # print([x0, x1], [y0, y1], haversine((x0, y1), (x1, y0))/3)
+
     # warming: if zoom big than 19 then there will be somthing wrong
     zoom = 19 if zoom > 19 else zoom
+
     img = tile.Tiles()
     f_lst, img_bbox = img.get_tiles_by_bbox([x0, y1, x1, y0], zoom, lyrs)
     to_image        = merge_tiles(f_lst)
@@ -70,6 +83,8 @@ def map_visualize(df: gpd.GeoDataFrame,
     # ax.yaxis.set_major_locator(plt.NullLocator())
     
     return fig, ax
+
+
 
 
 if __name__ == '__main__':

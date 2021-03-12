@@ -43,7 +43,7 @@ def fake_func(id, *args, **kwargs):
 
 
 if __name__ == '__main__':
-    df = pd.DataFrame( range(8), columns=['id'] )
+    df = pd.DataFrame( range(20), columns=['id'] )
     res = apply_parallel( fake_func, df, "id", verbose=0 )
     print(res)
     

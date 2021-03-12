@@ -1,4 +1,3 @@
-#%%
 import os
 import matplotlib.pyplot as plt
 import urllib
@@ -386,7 +385,6 @@ def traverse_panos_by_road_name(road_name, buffer=300, max_level=300, visualize=
 
     # buffer=500; max_level=400; visualize=True; save=True; road_name = '五和大道'
     df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
-    # map_visualize(df_roads)
     starts  = get_road_origin_points(df_roads)
     visited = set()
     level = 0
@@ -447,6 +445,8 @@ if __name__ == "__main__":
             e_lst.append(road_name)
     print("error: ", e_lst)
     
+    
+    intersection_visulize('09005700121709091713084929Y')
     pass
 
 

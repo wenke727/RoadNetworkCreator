@@ -53,5 +53,3 @@ for lon, lat in tqdm(points[145:]):
         res.append( fn )
 
 
-
-

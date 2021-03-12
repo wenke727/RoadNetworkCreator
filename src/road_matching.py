@@ -10,7 +10,7 @@ from haversine import haversine
 from shapely.geometry import Point
 from tqdm import tqdm
 
-from pano_img import get_staticimage, PANO_log, get_pano_ids_by_rid
+from pano_img import get_staticimage, PANO_log, get_pano_ids_by_rid, traverse_panos_by_rid
 from db.db_process import load_from_DB, extract_connectors_from_panos_respond, store_to_DB
 from utils.geo_plot_helper import map_visualize
 from utils.spatialAnalysis import linestring_length
@@ -193,37 +193,37 @@ def get_panos_of_road_by_id(road_id, df_edges, vis=False, save=False):
     return matching
 
 
-def traverse_panos_by_rid(rid, DB_panos, log=None):
-    """obtain the panos in road[rid] 
+# def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
+#     """obtain the panos in road[rid] 
 
-    Args:
-        rid (str): the id of road segements
+#     Args:
+#         rid (str): the id of road segements
 
-    Returns:
-        [type]: [description]
-    """
+#     Returns:
+#         [type]: [description]
+#     """
     
-    df_pids = get_pano_ids_by_rid(rid, DB_panos)
-    pano_lst = df_pids[['Order','PID', 'DIR']].values
-    length = len(pano_lst)
-    res, pre_heading = [], 0
+#     df_pids = get_pano_ids_by_rid(rid, DB_panos)
     
-    for id, (order, pid, heading) in enumerate(pano_lst):
-        if id == 0 or id == length-1:
-            continue
+#     pano_lst = df_pids[['Order','PID', 'DIR']].values
+#     length = len(pano_lst)
+#     res, pre_heading = [], 0
+    
+#     for id, (order, pid, heading) in enumerate(pano_lst):
+#         if heading == 0 and id != 0:   # direction, inertial navigation
+#             heading = pre_heading
         
-        if heading == 0 and id != 0:   # direction, inertial navigation
-            heading = pre_heading
-        
-        if (2 < order < length - 3) and order % 3 != 1:
-            # print(order)
-            continue
+#         if not all:
+#             if length > 3 and order % 3 != 1:
+#                 # print(order)
+#                 continue
 
-        fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
-        res.append(get_staticimage(pid=pid, heading=heading, path=fn, log_helper=log))
-        pre_heading = heading
+#         fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
+#         res.append(get_staticimage(pid=pid, heading=heading, path=fn, log_helper=log))
+#         pre_heading = heading
         
-    return res
+#     return res, df_pids
+
 
 
 def group_panos_by_road(road_id, df_matching, df_edges=df_edges):
@@ -264,7 +264,8 @@ def crawl_pano_imgs_by_roadid(road_id, df_edges, df_matching_path=config['data']
 
     res = []
     for rid in tqdm( matching.RID.values ):
-        res += traverse_panos_by_rid(rid=rid, DB_pano=DB_panos,log=PANO_log)
+        r, _ = traverse_panos_by_rid(rid=rid, DB_pano=DB_panos,log=PANO_log)
+        res += r
 
     res = pd.DataFrame({'road_id': [road_id] *len(res) ,'path':res})
     res.reset_index(inplace=True)
@@ -394,7 +395,7 @@ def crawl_pano_imgs_by_roadid_batch(road_ids, df_edges, road_name, visited=set([
     # obtain panos imgs
     panos_img_paths = []; road_type_lst = []
     for rid, road_type in tqdm( matching[['RID', 'link']].values, desc="traverse panos by rid" ):
-        fns = traverse_panos_by_rid(rid=rid, DB_panos=DB_panos, log=PANO_log)
+        fns, _ = traverse_panos_by_rid(rid=rid, DB_panos=DB_panos, log=PANO_log)
         panos_img_paths += fns
         road_type_lst += [road_type] * len(fns)
 
