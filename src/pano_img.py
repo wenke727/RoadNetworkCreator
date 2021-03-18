@@ -54,7 +54,7 @@ def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
     except:
         if log_helper is not None: 
             log_helper.error(f'crawled url failed: {url} ')
-        time.sleep( random.uniform(30, 120) )
+        time.sleep( random.uniform(30, 180) )
 
     # except urllib.error as e:
     #     # FIXME http.client.IncompleteRead: IncompleteRead(114291 bytes read, 502762 more expected), 

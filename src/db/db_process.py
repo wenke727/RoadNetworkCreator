@@ -121,6 +121,28 @@ def extract_connectors_from_panos_respond( DB_pano_base, DB_roads ):
     return connectors
 
 
+def update_lane_num_in_DB():
+    """update lane num in panos and roads
+    """
+    from scipy import stats
+    df_memo = pd.read_csv(config['data']['df_pred_memo'])
+    df_memo.loc[:, 'pred'] = df_memo.pred.apply( lambda x: eval(x) )
+    
+    # update the lane_num in roads
+    tmp = df_memo[['RID', 'lane_num']].groupby('RID').agg( lambda x: stats.mode(x)[0][0] ).reset_index()
+    DB_roads = DB_roads.merge(tmp, how='left')
+    DB_roads['lane_num'].fillna(-1, inplace=True)
+
+    # update the lane_num in panos
+    df_memo[['PID','DIR','lane_num']]
+    tmp = DB_panos[['PID','DIR']].reset_index().merge(df_memo[['PID','DIR','lane_num']], on=['PID','DIR'])
+    DB_panos.loc[tmp['index'], 'lane_num'] = tmp.lane_num
+    
+    store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
+    
+    return    
+
+
 if __name__ == '__main__':
     DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(new = False)
 

@@ -1,3 +1,4 @@
+#%%
 import os
 import matplotlib.pyplot as plt
 import urllib
@@ -447,6 +448,23 @@ if __name__ == "__main__":
     
     
     intersection_visulize('09005700121709091713084929Y')
+    
+    road_name = '妈湾大道'
+    road_name = '临海大道'
+    
+    lst = ['京港澳高速', '塘坳隧道', '南坪快速路', '塘朗山隧道', '东滨隧道', '广深沿江高速', '横龙山隧道', '南坪快速',
+       '新屋隧道', '南光高速', '福龙路',]
+
+    for road_name in lst:
+        try:
+            traverse_panos_by_road_name(road_name, buffer=500, max_level=200)
+        except:
+            store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
+            e_lst.append(road_name)
+    print("error: ", e_lst)
+        
+    traverse_panos_by_road_name('铜鼓路', buffer=500, max_level=200)
+    
     pass
 
 

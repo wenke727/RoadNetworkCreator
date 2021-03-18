@@ -26,7 +26,7 @@ from road_network import OSM_road_network
 # def initialize():
 #     global DB_pano_base, DB_panos, DB_connectors, DB_roads, config, pano_dir, pano_group_dir, DF_matching, osm_shenzhen, df_nodes, df_edges, connecters
 DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
-connecters = extract_connectors_from_panos_respond( DB_pano_base, DB_roads )
+# connecters = extract_connectors_from_panos_respond( DB_pano_base, DB_roads )
 
 config = load_config()
 pano_dir = config['data']['pano_dir']
@@ -162,8 +162,8 @@ def get_panos_of_road_by_id(road_id, df_edges, vis=False, save=False):
     road_osm = df_edges.query( f"rid == {road_id}" )
     
     # 可视化
-    fig, ax = map_visualize(road_osm, scale=0.1)
-    road_osm.plot(column='index', cmap='jet', ax=ax, legend=True)
+    # fig, ax = map_visualize(road_osm, scale=0.1)
+    # road_osm.plot(column='index', cmap='jet', ax=ax, legend=True)
     
     linestring_length(road_osm, True)
 

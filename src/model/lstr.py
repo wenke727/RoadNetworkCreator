@@ -4,7 +4,7 @@ import requests
 import numpy as np
 import time
 
-def lstr_pred(fn):
+def lstr_pred_celery_version(fn):
     """[summary]
 
     Args:
@@ -40,6 +40,15 @@ def lstr_pred(fn):
             break
 
     return res
+
+
+def lstr_pred(fn):
+    fn = fn.split('/')[-1] if '/' in fn else fn
+    r = requests.get( url=f"http://192.168.135.34:5000/lstr?fn={fn}" )  
+    # print(fn, r.status_code, r.json(), '...')
+
+    return r.json()['result']
+
 
 def draw_pred_lanes_on_img(pred_dict, out_path, dot=True, thickness=10, alpha=0.4, show_lane_num=True, debug_infos=None, root_folder = '/home/pcl/Data/minio_server/panos/'):
     """draw predited lanes on the input imgs"""
@@ -85,7 +94,7 @@ def draw_pred_lanes_on_img(pred_dict, out_path, dot=True, thickness=10, alpha=0.
     # Add Debug Infomation:
     if debug_infos is not None:
         for i, info in enumerate(debug_infos):
-            cv2.putText(img, info, (10, 30*(i+1)), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2)    
+            cv2.putText(img, str(info), (10, 30*(i+1)), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2)    
             
     # Add lane num 
     if show_lane_num:
@@ -107,8 +116,7 @@ if __name__ == '__main__':
     # res = lstr_pred(fn)
 
 
-    if 'respond' in res:
-        draw_pred_lanes_on_img(res['respond'], './test.jpg', dot=True, debug_infos=["hh"],thickness=5, alpha=0.6)
+    draw_pred_lanes_on_img(res, './test.jpg', dot=True, debug_infos=[res['PID'], res['RID']],thickness=5, alpha=0.6)
     
     
 # %%
