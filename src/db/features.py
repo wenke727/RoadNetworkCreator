@@ -28,7 +28,7 @@ def create_polygon_by_bbox(bbox):
     return Polygon(coords)
 
 
-def get_features(feature, bbox=None, in_sys='wgs84'):
+def get_features(feature, bbox=None, geom=None, in_sys='wgs84'):
     """creaet polygon by bbox(min_x, min_y, max_x, max_y)
 
     Args:
@@ -43,15 +43,17 @@ def get_features(feature, bbox=None, in_sys='wgs84'):
     assert in_sys == 'wgs84', "the coordination must be wgs84"
     matching = {'point':'panos', 'line': 'roads' }
     
-    if bbox is not None:
-        tmp = create_polygon_by_bbox( bbox=bbox )
-        sql = f"""
-            select * from {matching[feature]} 
-            where ST_Crosses( geometry, ST_GeomFromText('{tmp}', 4326) ) or 
-                  ST_Within( geometry, ST_GeomFromText('{tmp}', 4326) )
-            """
-    else:
-        sql = f"select * from {matching[feature]} "
+    assert not (bbox is None and geom is None), "bbox and geom cann't both be 0"
+    
+    if geom is None:
+        geom = create_polygon_by_bbox( bbox=bbox )
+        
+    sql = f"""
+        select * from {matching[feature]} 
+        where ST_Crosses( geometry, ST_GeomFromText('{geom}', 4326) ) or 
+                ST_Within( geometry, ST_GeomFromText('{geom}', 4326) )
+        """
+
     res = gpd.read_postgis( sql, geom_col='geometry', con=ENGINE )
     
     # res.to_file("./tmp.geojson", driver="GeoJSON")
@@ -72,3 +74,12 @@ if __name__ == '__main__':
     
     
     res.head(2).to_json()
+    
+    
+
+    area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
+    area = area.query( "name =='龙华区'" )  
+    tmp = area.iloc[0].geometry
+    lines = get_features( 'line', geom=tmp )
+
+

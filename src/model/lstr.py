@@ -77,7 +77,7 @@ def draw_pred_lanes_on_img(pred_dict, out_path, dot=True, thickness=10, alpha=0.
 
         # draw lane with a polyline on the overlay
         for index, (current_point, next_point) in enumerate(zip(points[:-1], points[1:])):
-            if dot and index %3 > 0:
+            if dot and index %5 > 0:
                 continue
             overlay = cv2.line(overlay, tuple(current_point), tuple(next_point), color=color, thickness=thickness)
 
