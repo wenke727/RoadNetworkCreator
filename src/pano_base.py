@@ -21,6 +21,9 @@ from utils.log_helper import LogHelper, logbook
 from utils.utils import load_config
 from utils.coord.coord_transfer import *
 from utils.geo_plot_helper import map_visualize
+from db.features import get_features
+from utils.spatialAnalysis import create_polygon_by_bbox
+
 warnings.filterwarnings(action="ignore")
 
 config    = load_config()
@@ -243,12 +246,11 @@ def isValid_Point(nxt:list, area:Polygon):
     return df_nxt.within(area).values[0]
 
 
-def bfs_helper(x, y, area, pano_id=None, max_level=200, visualize=False, console_log=False, log_extra_info=None, auto_save_db=True):
+def bfs_helper(x, y, area, visited=set(),pano_id=None, max_level=200, visualize=False, console_log=False, log_extra_info=None, auto_save_db=True):
     level     = 0
     query_num = 0
     thres     = 300
-    visited   = set()
-
+    
     _, _, _, queue = query_pano( x=x, y=y, pano_id=pano_id, visualize=False, add_to_DB=True, http_log=True, scale=2 )
     while queue and level < max_level:
         nxt_queue = []
@@ -384,7 +386,7 @@ def traverse_panos_by_road_name(road_name, buffer=300, max_level=300, visualize=
         [type]: [description]
     """
 
-    # buffer=500; max_level=400; visualize=True; save=True; road_name = '五和大道'
+    # buffer=500; max_level=400; visualize=True; save=True; road_name = '布龙路'
     df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
     starts  = get_road_origin_points(df_roads)
     visited = set()
@@ -393,8 +395,9 @@ def traverse_panos_by_road_name(road_name, buffer=300, max_level=300, visualize=
     try:
         for p in tqdm(starts, desc=road_name):
             log_extra_info = f"{road_name}, {level+1}/{len(starts)}"
-            temp = bfs_helper(*p, road_buffer, pano_id=None, max_level=max_level, console_log=True, log_extra_info=log_extra_info, auto_save_db=auto_save_db)
-            visited = visited.union(temp)
+            visited = bfs_helper(*p, road_buffer, visited=visited, pano_id=None, max_level=max_level, console_log=True, log_extra_info=log_extra_info, auto_save_db=auto_save_db)
+            # temp = bfs_helper(*p, road_buffer, visited=visited, pano_id=None, max_level=max_level, console_log=True, log_extra_info=log_extra_info, auto_save_db=auto_save_db)
+            # visited = visited.union(temp)
             level += 1
     except:
         store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
@@ -410,147 +413,134 @@ def traverse_panos_by_road_name(road_name, buffer=300, max_level=300, visualize=
     return
 
 
+def get_unvisited_point(road_name = '民治大道', buffer=20):
+    # TODO 识别没有抓取到数据的区域
+    df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
+    lst = []
+    for x in df_roads.geometry.apply( lambda x: x.coords[:] ):
+        lst += x
+
+    points = gpd.GeoDataFrame( {'geometry':[ Point(i) for i in  set(lst)]})
+    points.loc[:, 'area'] = points.buffer(buffer/110/1000)
+    points.reset_index(inplace=True)
+
+    panos = get_features('point', points.total_bounds)
+    points.set_geometry('area', inplace=True)
+
+    visited = sorted(gpd.sjoin(left_df=points, right_df=panos, op='contains')['index'].unique().tolist())
+    ans = points.query( f"index not in {visited} " )
+
+    return ans 
+
+
+def get_unvisited_line(road_name='民治大道', buffer=3.75*2.5):
+    # TODO 识别没有抓取到数据的区域
+    df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
+    df_roads.loc[:, 'area'] = df_roads.buffer(buffer/110/1000)
+    df_roads.reset_index(inplace=True)
+
+    # panos = get_features('point', df_roads.total_bounds)
+    panos = DB_panos[DB_panos.within(create_polygon_by_bbox(df_roads.total_bounds))]
+    df_roads.set_geometry('area', inplace=True)
+
+    visited = sorted(gpd.sjoin(left_df=df_roads, right_df=panos, op='contains')['index'].unique().tolist())
+    ans = df_roads.query( f"index not in {visited} " )
+
+    return ans 
+
+
+def traverse_panos_by_road_name_new(road_name = '龙华人民路', auto_save_db=False, buffer=100, max_level=500):
+    visited_pids, visited_coord = set(), set()
+    level = 0;  count = 0
+
+    df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
+    queue_df_roads = df_roads.copy()
+    # map_visualize(df_roads)
+
+    while queue_df_roads.shape[0] > 0:
+
+        starts  = get_road_origin_points(queue_df_roads)
+        p = starts[0]
+        coord = f"{p[0]:.2f},{p[1]:.2f}"
+        visited_coord.add(coord)
+        
+        log_extra_info = f"{road_name}, {level+1}/{len(starts)}"
+        visited_pids_prev = visited_pids.copy()
+        visited_pids = bfs_helper(*p, road_buffer, visited=visited_pids, pano_id=None, max_level=max_level, 
+                                console_log=True, log_extra_info=log_extra_info, auto_save_db=auto_save_db)
+        level += 1
+
+        unvisited_line = get_unvisited_line(road_name, 3.75*2)
+        unvisited_line.query( f"start not in {list(visited_coord)}", inplace=True )
+
+        # if unvisited_line.shape[0] == 0: break
+
+        queue_df_roads = unvisited_line
+
+        count += 1
+        if True and count %5==0 and unvisited_line.shape[0] > 0:
+            visited_panos =  DB_panos.query( f" PID in {list(visited_pids)} " )
+            visited_rids = DB_roads.query( f"RID in {visited_panos.RID.unique().tolist()}" )
+            
+            fig, ax = map_visualize(df_roads, label = 'road', color='gray', scale=.05)
+            visited_panos.plot(ax=ax, label='visited', alpha=0.5)
+            new_visited = DB_panos.query( f" PID in {list(visited_pids-visited_pids_prev)} " )
+            if new_visited.shape[0]:
+                new_visited.plot(ax=ax, label='new visited', color='green', alpha=0.5)
+            if unvisited_line.shape[0]:
+                unvisited_line.set_geometry('geometry').plot( ax=ax, label='unvisited', color='red' )
+
+            ax.legend()
+
+    if True:
+        df = DB_roads.query(f"PID_end in {list(visited_pids)} or PID_start in {list(visited_pids)}")
+        fig, ax = map_visualize(df, color= 'red')
+        fig.savefig(os.path.join(config['data']['log_dir'], f"{road_name}.jpg"), pad_inches=0.1, bbox_inches='tight',dpi=600)
+        
+    store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
+    
+    return True
+
 #%%
 if __name__ == "__main__":
 
-    # """ 遍历道路 """
-    # lst = ['红荔路', '益田路', '皇岗路', ]
-    # lst = ['打石一路', '茶光路',  ]
-    # # road_name = "益田路"
-    # for road_name in lst:
-    #     traverse_panos_by_road_name(road_name, buffer=800, max_level=200)
+    # longhua
+    # traverse_panos_by_road_name('民治大道', buffer=500, max_level=200)
+    # traverse_panos_by_road_name('龙华大道', buffer=500, max_level=200)
+    # traverse_panos_by_road_name('布龙路', buffer=500, max_level=200)
+    # traverse_panos_by_road_name('龙观大道', buffer=500, max_level=200)
+    # traverse_panos_by_road_name('龙澜大道', buffer=500, max_level=200)
+    # traverse_panos_by_road_name('新丹路', buffer=500, max_level=200)
+    
+    # traverse_panos_by_road_name('清龙路', buffer=100, max_level=200)
+    
+    # df_unvisited = get_unvisited_point('布龙路')
+    
+    # df_unvisited = get_unvisited_point('龙华大道')
+    # if df_unvisited.shape[0]:
+    #     map_visualize(df_unvisited)
+    
+    traverse_panos_by_road_name_new('京港澳高速')
+    traverse_panos_by_road_name_new('东环一路')
+    traverse_panos_by_road_name_new('华荣路')
+    traverse_panos_by_road_name_new('沈海高速-道路')
     
     
-    # traverse_panos_by_road_name('打石一路', 50)
-    # traverse_panos_by_road_name('新洲路')
-    # traverse_panos_by_road_name('益田路')
-    # traverse_panos_by_road_name('金田路')
-    # traverse_panos_by_road_name('彩田路', 500)
     
-    """ 福田区 """
-    lst = [
-        # '香蜜湖路', 
-        '香梅路', '皇岗路', '福田路', '民田路', '福田中心四路', '福田中心五路',  '红树林路',
-        '福强路', '福民路', '福华一路', '福中路', '福中一路', '深南中路', '红荔路', '红荔西路', '莲花路', '笋岗西路', '侨香路'
-    ]
+    for i in ['玉翠三街', '建辉路','布龙路', '油松路']:
+        traverse_panos_by_road_name_new(i)
     
-    """ 龙岗区 """
-    # '贝尔路','稼先路'
-    lst = ['吉华路','百利路']
-    e_lst = []
-    for road_name in lst:
-        try:
-            traverse_panos_by_road_name(road_name, buffer=500, max_level=200)
-        except:
-            store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
-            e_lst.append(road_name)
-    print("error: ", e_lst)
-    
-    
-    intersection_visulize('09005700121709091713084929Y')
-    
-    road_name = '妈湾大道'
-    road_name = '临海大道'
-    
-    lst = ['京港澳高速', '塘坳隧道', '南坪快速路', '塘朗山隧道', '东滨隧道', '广深沿江高速', '横龙山隧道', '南坪快速',
-       '新屋隧道', '南光高速', '福龙路',]
-
-    for road_name in lst:
-        try:
-            traverse_panos_by_road_name(road_name, buffer=500, max_level=200)
-        except:
-            store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
-            e_lst.append(road_name)
-    print("error: ", e_lst)
-        
-    traverse_panos_by_road_name('铜鼓路', buffer=500, max_level=200)
+    store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
     
     pass
 
-
-
-# %%
-
-
 #%%
-# starts = starts
+# road_name = '龙华大道'
 
-# df = pd.DataFrame(pd.Series(starts[1:]), columns=['input'])
+# road_name = '民康路'
 
-
-
-# buffer=500; max_level=400; visualize=True; save=True; road_name = '吉华路'
-# config = {"area": road_buffer, 'pano_id': None, "max_level": max_level, "console_log":True, "auto_save_db": False}
-
-
-# visited = bfs_helper( *starts[0], **config )
 
 
 
 
 #%%
-#! Parrallel
-
-# from joblib import Parallel, delayed
-# import pandas as pd
-# import multiprocessing as mp
-
-# MAX_JOBS = int(mp.cpu_count()) 
-
-# def apply_parallel(func, data:pd.DataFrame, params='id', n_jobs = MAX_JOBS, verbose=0, *args, **kwargs):
-#     if data.shape[0] < n_jobs:
-#         n_jobs = data.shape[0]
-        
-#     data.loc[:,'group'] = data.index % n_jobs
-#     df = data.groupby('group')
-    
-#     results = Parallel(
-#         n_jobs=n_jobs, verbose=verbose)(
-#             delayed(parallel_helper)(func, group, params, *args, **kwargs) for name, group in df 
-#         )
-    
-#     print("Done!")
-#     return results
-
-# def parallel_helper(func, data:pd.DataFrame, params, *args, **kwargs):
-#     res = []
-#     for index, item in data.iterrows():
-#         # res.append( item[att] )
-#         res.append( func( *item[params], *args, **kwargs ))
-    
-#     return res
-
-
-# # parallel_helper(bfs_helper, df[:1], 'input', **config)
-# res = apply_parallel(bfs_helper, df, 'input', verbose=1,**config)
-
-# len(res)
-
-# visited = []
-# for i in res:
-#     for j in i:
-#         visited += list(j)
-
-# len(set(visited))
-
-
-# # 完善这一块
-# pd.DataFrame( visited ).drop_duplicates().to_csv("./visited.csv")
-
-
-
-# apply_parallel( bfs_helper,  )
-# %%
-
-# import time
-# print(time.time())
-# visited = set()
-# level = 0
-
-# for p in tqdm(starts, desc=road_name):
-#     log_extra_info = f"{road_name}, {level+1}/{len(starts)}"
-#     temp = bfs_helper(*p, road_buffer, pano_id=None, max_level=max_level, console_log=True, log_extra_info=log_extra_info, auto_save_db=False)
-#     visited = visited.union(temp)
-#     level += 1
-
-# print(time.time())
