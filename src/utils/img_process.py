@@ -86,6 +86,40 @@ def url_to_image_CV2(url='http://www.pyimagesearch.com/wp-content/uploads/2015/0
     return image
 
 
+def Image_to_CV2(img):
+    return cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)  
+
+
+def images_to_video(path):
+    input_folder = "./detections"
+
+    fns = os.listdir(input_folder)
+
+    img = cv2.imread( os.path.join(input_folder, fns[0]) )
+    x, y, z = img.shape
+    img_array = []
+ 
+    for f in fns:
+        img = cv2.imread(os.path.join(input_folder, f))
+        if img is None:
+            print(f + " is error!")
+            continue
+        img_array.append(img)
+    
+    len(img_array)
+    # 图片的大小需要一致
+    # img_array, size = resize(img_array, 'largest')
+    
+    fps = 1
+    out = cv2.VideoWriter('demo.avi', cv2.VideoWriter_fourcc(*'XVID'), fps, (x,y ), True)
+ 
+    for i in range(len(img_array)):
+        out.write(img_array[i])
+
+    out.release()
+    cv2.destroyAllWindows()
+
+
 # ! Image relared
 def plt_2_Image(fig):
     # method 1: PIL -> Image
@@ -101,19 +135,29 @@ def plt_2_Image(fig):
 
 
 def combine_imgs(imgs):
+    """merge imgs by row.
+
+    Args:
+        imgs ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
     n = len(imgs)
     if n == 0: return None
     
     if not isinstance(imgs[0], Image.Image):
         imgs = [ Image.open(i) for i in imgs ]
-        
-    w, h = imgs[0].size
+    
+    heights = [ img.size[1] for img in imgs ]
+    
+    w, _ = imgs[0].size
+    to_img = Image.new('RGB', ( w, sum(heights)))
 
-    to_img = Image.new('RGB', ( w, h*n))
-    to_img.paste( imgs[0], (0, 0) )
-
-    for index, i in enumerate(imgs[1:]):
-        to_img.paste( i, (0, h*(index+1)) )
+    acc_h = 0
+    for index, i in enumerate(imgs):
+        to_img.paste( i, (0, acc_h ) )
+        acc_h += heights[index]
 
     return to_img
 

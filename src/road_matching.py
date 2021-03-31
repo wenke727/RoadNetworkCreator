@@ -193,38 +193,6 @@ def get_panos_of_road_by_id(road_id, df_edges, vis=False, save=False):
     return matching
 
 
-# def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
-#     """obtain the panos in road[rid] 
-
-#     Args:
-#         rid (str): the id of road segements
-
-#     Returns:
-#         [type]: [description]
-#     """
-    
-#     df_pids = get_pano_ids_by_rid(rid, DB_panos)
-    
-#     pano_lst = df_pids[['Order','PID', 'DIR']].values
-#     length = len(pano_lst)
-#     res, pre_heading = [], 0
-    
-#     for id, (order, pid, heading) in enumerate(pano_lst):
-#         if heading == 0 and id != 0:   # direction, inertial navigation
-#             heading = pre_heading
-        
-#         if not all:
-#             if length > 3 and order % 3 != 1:
-#                 # print(order)
-#                 continue
-
-#         fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
-#         res.append(get_staticimage(pid=pid, heading=heading, path=fn, log_helper=log))
-#         pre_heading = heading
-        
-#     return res, df_pids
-
-
 
 def group_panos_by_road(road_id, df_matching, df_edges=df_edges):
     """将已下载的panos根据匹配的道路重组，并复制到特定的文件夹中
@@ -513,62 +481,3 @@ if False:
     road_id = 362735582
     
     # %%
-
-# TODO 整理代码
-# road_id = 362735582
-
-# road_osm.iloc[4]
-
-# rid = '42fe8d-9555-1595-7843-afe68c'
-
-# panos = get_pano_ids_by_rid(rid, DB_panos)
-
-# lane_shape_predict_memo = '/home/pcl/Data/minio_server/input/lane_shape_predict_memo.csv'
-# df_pred_memo = pd.read_csv(lane_shape_predict_memo)
-# df_pred_memo.loc[:, 'pred'] = df_pred_memo.pred.apply(lambda x: eval(x))
-# # df_pred_memo.loc[:,'PID'] = df_pred_memo.name.apply(lambda x: x.split('_')[-2])
-# # df_pred_memo.loc[:,'DIR'] = df_pred_memo.name.apply(lambda x: x.split('_')[-1].split('.')[0]).astype(np.int)
-# # df_pred_memo[['PID', 'DIR', 'lane_num', 'name',  'pred']].to_csv( lane_shape_predict_memo, index=False )
-
-
-# panos = panos.merge( df_pred_memo, on=["PID", 'DIR'] )
-
-# from model.lstr import draw_pred_lanes_on_img
-
-# tmp = panos.iloc[0].to_dict()
-# tmp['file'] = tmp['name']
-# tmp['pred'] = eval(tmp['pred'])
-
-# draw_pred_lanes_on_img(tmp, 'tmp.jpg')
-
-
-# for i in range( panos.shape[0] ):
-#     tmp = panos.iloc[i].to_dict()
-#     tmp['file'] = tmp['name']
-#     draw_pred_lanes_on_img(tmp, f'./tmp/{i:02d}.jpg')
-
-
-# # 保存所有的记录
-# # DB_panos = DB_panos.merge( df_pred_memo[["PID", 'DIR','lane_num']], on=["PID", 'DIR'], how='left' ).fillna(-1)
-# # DB_panos.lane_num.value_counts()
-# # store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
-
-
-# # 更新最后一个节点
-# df_last_point = DB_panos[['RID','Order']].groupby('RID').max().reset_index().query('Order > 0').rename(columns={'Order':'max_ord'})
-# df_last_point.loc[:, 'sec_ord'] = df_last_point.max_ord - 1
-# df_last_point = df_last_point.merge( DB_panos[['RID','Order','DIR']], left_on=['RID', 'sec_ord'], right_on=['RID',"Order"] )
-# df_last_point.drop(columns='Order', inplace=True)
-# df_last_point.rename(columns={'DIR': 'dir'}, inplace=True)
-
-
-# DB_panos.loc[:, 'DIR_bak'] = DB_panos.DIR
-# cols = DB_panos.columns
-
-# DB_panos = DB_panos.merge(df_last_point, left_on=['RID',"Order"], right_on=['RID', 'max_ord'], how='left')
-# DB_panos.loc[:, 'DIR'] = (DB_panos.DIR + DB_panos.dir.fillna(0)).astype(np.int)
-# DB_panos = DB_panos[cols]
-
-# DB_panos.query("RID == '69c977-b392-e17d-abc7-1b754f' ")
-
-# store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)

@@ -21,8 +21,9 @@ from db.db_process import load_from_DB, store_to_DB, update_lane_num_in_DB
 from utils.geo_plot_helper import map_visualize
 from utils.utils import load_config
 from utils.img_process import get_pano_id_by_rid, plot_pano_and_its_view, plt_2_Image, cv2_2_Image, combine_imgs
-from model.lstr import draw_pred_lanes_on_img, lstr_pred
 from utils.classes import Digraph
+from utils.spatialAnalysis import create_polygon_by_bbox, linestring_length
+from model.lstr import draw_pred_lanes_on_img, lstr_pred
 
 from road_matching import *
 
@@ -36,25 +37,25 @@ df_memo.loc[:, 'pred'] = df_memo.pred.apply( lambda x: eval(x) )
 
 
 # BBOX = [113.92348,22.57034, 113.94372,22.5855] # 留仙洞区域
-BBOX = [113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
-# BBOX = [113.92131,22.5235, 113.95630,22.56855] # 科技园片区
+# BBOX = [113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
+BBOX = [113.92131,22.5235, 113.95630,22.56855] # 科技园片区
 # BBOX = [114.04133,22.52903, 114.0645,22.55213] # 福田核心城区
 
 #%%
 
+VISITED = set()
+ROAD_PANO_COUNT_DICT = {}
+
+
+
 ###
 # ! SQL related
-def query_df_memo_by_rid(rid = '0019c9-7503-4f2e-3f59-bbbccf'):
-    return df_memo.query( f"RID == '{rid}' " ).sort_values(by='name')
-
-def query_by_rid(df, rid = '0019c9-7503-4f2e-3f59-bbbccf'):
-    return df.query( f"RID == '{rid}' " )
-
 def query_df(df, att, val):
     val = '\''+val+'\'' if isinstance(val, str) else val 
     return df.query( f" {att} == {val} " )
 
 
+# useless
 def get_heading_according_to_prev_road(rid):
     """ 可能会有多个值返回，如：
         rid = 'ba988a-7763-e9af-a5fb-dc8590'
@@ -173,6 +174,16 @@ def draw_network_lanes( fn = "../lxd_predict.csv", save_img=None ):
     return matching
 
 
+def obtain_create_time(folder):
+    import time
+    fns = pd.DataFrame( [os.path.join(folder, f ) for f in os.listdir( folder )], columns=['file'] )
+    fns.loc[:, 'mtime'] = fns.file.apply( lambda x: os.stat('./baidu_map.py').st_mtime )
+    fns.loc[:, 'ctime'] = fns.file.apply( lambda x: os.stat('./baidu_map.py').st_ctime )
+    
+    return fns
+
+
+# related
 def get_panos_imgs_by_bbox(bbox=[113.92348,22.57034, 113.94372,22.5855], vis=True, with_folder=False):
     """获取某一个区域所有的panos
 
@@ -192,7 +203,7 @@ def get_panos_imgs_by_bbox(bbox=[113.92348,22.57034, 113.94372,22.5855], vis=Tru
     features = get_features('line', bbox=bbox)
     if vis: map_visualize(features)
 
-    for rid in tqdm(features.RID.unique()):
+    for rid in tqdm(features.RID.unique(), desc='get_panos_imgs_by_bbox'):
         info, _ = traverse_panos_by_rid(rid, DB_panos, log=PANO_log, all=False)
         res += info
 
@@ -251,11 +262,14 @@ def plot_pano_and_its_view(pid, DB_panos, DB_roads, road=None,  heading=None):
     if road is None:
         fig, ax = map_visualize( DB_roads.query( f"RID == '{pid_record.RID}' " ), label="Lane" )
     else:
-        fig, ax = map_visualize( road, label="Road" )
+        fig, ax = map_visualize( DB_roads.query( f"RID == '{pid_record.RID}' " ).append(road), color='blue', linestyle='--')
+        road.plot(ax=ax, label="Road", color='red')
+        # fig, ax = map_visualize( road, label="Road" )
 
     x0, x1 = ax.get_xlim()
     aus_line_len = (x1-x0)/20
     dy, dx = math.cos(heading/180*math.pi) * aus_line_len, math.sin(heading/180*math.pi) * aus_line_len
+    
     ax.annotate('', xy=(x+dx, y+dy), xytext= (x,y) ,arrowprops=dict(facecolor='blue', shrink=0.05, alpha=0.5))
     gpd.GeoSeries( [Point(x, y)] ).plot(ax=ax, label='Pano', marker='*',  markersize= 360 )
 
@@ -267,7 +281,7 @@ def plot_pano_and_its_view(pid, DB_panos, DB_roads, road=None,  heading=None):
     return fig
 
 
-def add_location_view_to_img(pred, whole_road=None, debug_infos=[], folder='../log', width=None, quality=90):
+def add_location_view_to_img(pred, whole_road=None, debug_infos=[], folder='../log', fn_pre=None, width=None, quality=90):
     """在预测的街景照片中添加位置照片
 
     Args:
@@ -277,9 +291,10 @@ def add_location_view_to_img(pred, whole_road=None, debug_infos=[], folder='../l
     Returns:
         [type]: [description]
     """
+    pre = f"{int(debug_infos[0]):03d}_" if len(debug_infos) > 0 else ""
+
     fig = plot_pano_and_its_view( pred['PID'], DB_panos, DB_roads, whole_road )
     loc_img = plt_2_Image(fig)
-    
     debug_infos += [pred['RID'], pred['PID']]
     pred_img = cv2_2_Image(draw_pred_lanes_on_img( pred, None, dot=True, thickness=6, alpha=0.7, debug_infos=debug_infos) )
     plt.close()
@@ -296,16 +311,18 @@ def add_location_view_to_img(pred, whole_road=None, debug_infos=[], folder='../l
         to_img = to_img.resize( (width, int(to_img.size[1] / to_img.size[0]*width)) )
     
     if folder is not None:
-        img_fn = os.path.join( folder, pred['name'].replace('.jpg', '_loc.jpg') )
+        # img_fn =  (fn_pre + "_" if fn_pre is not None else '') + pre + f"{pred['name'].replace('.jpg', '_loc.jpg')}"
+        img_fn =  (fn_pre + "_" if fn_pre is not None else '') + pre + pred['name']
+        img_fn = os.path.join( folder, img_fn )
         to_img.save( img_fn, quality=quality)
-    
+
         return to_img, img_fn
 
     return to_img, None
 
 
-def lane_shape_predict_for_segment(rid, df_memo=df_memo, with_location=True, related_pos=None, 
-                                   format='combine', folder = '../log', duration=0.5, gdf_road=None, all_panos=False, quality=90):
+def lane_shape_predict_for_segment(rid, df_memo=df_memo, with_location=True, format='combine', folder = '../log', duration=0.5, gdf_road=None, 
+                                   road_name=None, all_panos=False, quality=90):
     """[预测某一个路段所有的街景，并生成预测动画]
 
     Args:
@@ -319,22 +336,30 @@ def lane_shape_predict_for_segment(rid, df_memo=df_memo, with_location=True, rel
     Returns:
         [type]: [description]
     """
-    if folder is not None and not os.path.exists(folder): os.mkdir(folder)
+    global VISITED, ROAD_PANO_COUNT_DICT
+    if folder is not None and not os.path.exists(folder):  os.mkdir(folder)
+    
     lst, df_pids = traverse_panos_by_rid(rid, DB_panos, PANO_log, all=all_panos)
-
     imgs = []
-    flag = True if related_pos is not None else False
-    for i in tqdm(lst, desc="lane_shape_predict_for_segment: "):
+
+    for i in [ f.split("/")[-1] for f in lst]:
+        index = None
+        if VISITED is not None and ROAD_PANO_COUNT_DICT is not None:
+            if i in VISITED: continue
+            VISITED.add(i)
+            ROAD_PANO_COUNT_DICT[road_name] = ROAD_PANO_COUNT_DICT.get( road_name, [] )
+            index = len(ROAD_PANO_COUNT_DICT[road_name])
+            ROAD_PANO_COUNT_DICT[road_name].append( (rid, i) )
+        
         pred, df_memo = lane_shape_predict(i, df_memo)
             
         if with_location:
-            # TODO 针对一条线路的情况
-            img, img_fn = add_location_view_to_img( pred, whole_road=gdf_road, folder=folder, debug_infos=[] if not flag else [str(related_pos)], quality=quality )
+            img, img_fn = add_location_view_to_img( pred, whole_road=gdf_road, folder=folder, fn_pre=road_name, 
+                                                   debug_infos=[] if index is None else [str(index)], quality=quality )
         else:
             img_fn = os.path.join(folder, pred['name'])
             img = draw_pred_lanes_on_img( pred, img_fn )
 
-        if flag: related_pos += 1
         imgs.append(img)
 
     if format=='combine':
@@ -346,7 +371,6 @@ def lane_shape_predict_for_segment(rid, df_memo=df_memo, with_location=True, rel
         import imageio
         images = []
         for img in imgs:
-            # print(filename)
             # images.append(imageio.imread(filename))
             images.append(img)
         imageio.mimsave(f'{folder}/{rid}.gif', images, 'GIF', duration=duration)
@@ -377,7 +401,7 @@ def update_unpredict_panos(pano_lst, df_memo):
     return pano_lst, df_memo
 
 
-def pred_osm_road_by_rid(road_id, roads_of_intrest, combine_imgs=False):
+def pred_osm_road_by_rid(road_id, roads_of_intrest, combine_imgs=False, quality=100):
     """匹配osm某一条道路的所有panos，并预测
 
     Args:
@@ -392,18 +416,23 @@ def pred_osm_road_by_rid(road_id, roads_of_intrest, combine_imgs=False):
     
     r = roads.iloc[0]
     road_level, road_name = r['road_type'], r['name']
-    if road_name is not None or road_name != '':
-        folder = LSTR_DEBUG + "/" + "_".join(  [str(road_level), str(road_name)] )
-    else:
-        folder = LSTR_DEBUG + "/" + "_".join(  [str(road_level), str(road_id)] )
+    folder = LSTR_DEBUG + "/" + str(road_level)
+    
+    # if road_name is not None or road_name != '':
+        # folder = LSTR_DEBUG + "/" + "_".join(  [str(road_level), str(road_name)] )
+    # else:
+        # folder = LSTR_DEBUG + "/" + "_".join(  [str(road_level), str(road_id)] )
         
     matching  = get_panos_of_road_by_id(road_id, df_edges, True)
+    if matching is None or matching.shape[0] == 0:
+        return []
+    
     gdf_road = df_edges.query( f"rid=={road_id}" )
-
     fns = []
     for RID in matching.RID.values:
-        lane_shape_predict_for_segment(RID, df_memo, with_location=True, related_pos=None, format=None, 
-                                       folder=folder, gdf_road=gdf_road, all_panos=False)
+        lane_shape_predict_for_segment(RID, df_memo, with_location=True, format=None, road_name=road_name,
+                                       folder=folder, gdf_road=gdf_road, all_panos=False, quality=quality)
+        # FIXME
         fns.append( folder+f"/{RID}.jpg" )
 
     if combine_imgs:  
@@ -422,47 +451,144 @@ def pred_osm_road_by_rid(road_id, roads_of_intrest, combine_imgs=False):
     return fns
 
 
-if False:
-    def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
-        # ! modified
-        """obtain the panos in road[rid] 
+def pred_analysis(BBOX):
+    # TODO 对数据进行分析 离散性计算; 2 去除无用的数据，即非道路数据
 
-        Args:
-            rid (str): the id of road segements
+    pano_lst, df_memo = update_unpredict_panos(get_panos_imgs_by_bbox(BBOX), df_memo)
+    pano_lst[['RID', 'lane_num']].groupby('RID').count().query('lane_num > 1')
 
-        Returns:
-            [type]: [description]
-        """
-        
-        df_pids = get_pano_ids_by_rid(rid, DB_panos)
-        
-        pano_lst = df_pids[['Order','PID', 'DIR']].values
-        length = len(pano_lst)
-        res, pre_heading = [], 0
-        
-        for id, (order, pid, heading) in enumerate(pano_lst):
-            if heading == 0 and id != 0:   # direction, inertial navigation
-                heading = pre_heading
-            
-            if not all:
-                if length > 3 and order % 3 != 1:
-                    # print(order)
-                    continue
+    def count_pred_num(df):
+        return df.lane_num.unique()
 
-            fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
-            res.append(get_staticimage(pid=pid, heading=heading, path=fn, log_helper=log))
-            pre_heading = heading
-            
-        return res, df_pids
+    groups = pano_lst[['RID', 'lane_num']].groupby('RID')
+    res = pd.DataFrame(groups.apply( count_pred_num ), columns=['pred_sit'])
+    res.loc[:,'std'] = groups.std().fillna(-1).values
+    res.loc[:,'count'] = groups.count().values
+    res.reset_index(inplace=True)
+
+    # TODO: add length, caculate the heading
+    res = res.merge(
+            DB_panos[['RID','Order']].groupby('RID').count().reset_index()
+        ).rename(columns={'Order': "panos_num"})
+
+    return res
 
 
-def obtain_create_time(folder):
-    import time
-    fns = pd.DataFrame( [os.path.join(folder, f ) for f in os.listdir( folder )], columns=['file'] )
-    fns.loc[:, 'mtime'] = fns.file.apply( lambda x: os.stat('./baidu_map.py').st_mtime )
-    fns.loc[:, 'ctime'] = fns.file.apply( lambda x: os.stat('./baidu_map.py').st_ctime )
+def merge_rodas_segment(roads):
+    net = Digraph( roads[['s','e']].values )
+
+    net.combine_edges()
+    result = net.combine_edges(roads)
+
+    ids_sorted = []
+    for _, road_ids in result:
+        ids_sorted += road_ids
     
-    return fns
+    return ids_sorted
+
+
+
+# %%
+
+def lstr_pred_by_bbox(BBOX):
+    rois = gpd.clip(df_edges, create_polygon_by_bbox(BBOX) )
+    linestring_length(rois, 'length')
+    rois.loc[rois.name.isna(), 'name'] = rois.loc[rois.name.isna()].road_type.apply( lambda x:  "".join([ i[0] for i in  x.split("_")]))
+
+
+    sorted(rois.road_type.unique())
+
+    road_type_lst =  [
+        'motorway',
+        'trunk', 
+        'primary',
+        'secondary',
+        'tertiary',
+        'motorway_link',
+        'trunk_link',
+        'primary_link',
+        'secondary_link',
+        'residential',
+        'unclassified'
+        'construction',
+    ]
+
+
+    error_lst = ['error list']
+    for road_type in road_type_lst[:]:
+        # road_type = 'trunk'
+        # road_type = 'primary'
+        # road_type = 'primary_link'
+        # road_type = 'secondary'
+        # road_type = 'tertiary'
+        roads = rois.query( f"road_type == '{road_type}' " ) 
+        # map_visualize(roads)
+
+        for road_name, df in roads.groupby('name'):
+            # if road_name !='_': continue
+            # print(road_name)
+            rids = merge_rodas_segment(df)
+
+            for i in rids[:]:
+                try:
+                    pred_osm_road_by_rid(i, rois)
+                except:
+                    error_lst.append( f"{road_type}, {road_name}, {i}" )
+
+    return error_lst
+
+
+BBOX = [113.92131,22.5235, 113.95630,22.56855] # 科技园片区
+lstr_pred_by_bbox(BBOX)
+BBOX = [114.04133,22.52903, 114.0645,22.55213] # 福田核心城区
+lstr_pred_by_bbox(BBOX)
+
+try:
+    pickle.dump(VISITED, open('./log/VISITED.pkl', 'wb'))
+    pickle.dump(ROAD_PANO_COUNT_DICT, open('./log/ROAD_PANO_COUNT_DICT.pkl', 'wb'))
+except:
+    pass
+
+try:
+    with open("./log/error_road.log", 'w') as f:
+        f.write(  "\n".join(error_lst) )
+except:
+    pass
+
+#%%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# test = query_df(df_edges, 'rid', 208128052)
+
+# map_visualize(test)
+
+# from utils.collection.roadNetwork import reverse_shp
+# test.loc[:, 'geometry'] = test.geometry.apply( lambda x: reverse_shp(x) )
+
+# # ! 尝试反转 道路，然后去匹配反方向的道路, 遍历后的顺序问题，解决一下
+# roads = test
+# roads.loc[:, 'rid'] = -roads.rid
+
+
+
+# df_edges = df_edges.append( roads, ignore_index=True )
+
+
+
+
+
 
 
 #%%
@@ -499,129 +625,3 @@ def obtain_create_time(folder):
     # query_df(df_memo, "RID", '97571c-f6a6-16e9-6440-54d7e1')
     # lane_shape_predict_for_segment('97571c-f6a6-16e9-6440-54d7e1', df_memo, True, 'combine', folder, gdf_road=gdf_road, all_panos=False)
         
-#%%
-# TODO 对数据进行分析 离散性计算; 2 去除无用的数据，即非道路数据
-
-
-pano_lst, df_memo = update_unpredict_panos(get_panos_imgs_by_bbox(BBOX), df_memo)
-pano_lst[['RID', 'lane_num']].groupby('RID').count().query('lane_num > 1')
-
-def count_pred_num(df):
-    return df.lane_num.unique()
-
-groups = pano_lst[['RID', 'lane_num']].groupby('RID')
-res = pd.DataFrame(groups.apply( count_pred_num ), columns=['pred_sit'])
-res.loc[:,'std'] = groups.std().fillna(-1).values
-res.loc[:,'count'] = groups.count().values
-res.reset_index(inplace=True)
-
-# TODO: add length, caculate the heading
-res = res.merge(
-        DB_panos[['RID','Order']].groupby('RID').count().reset_index()
-    ).rename(columns={'Order': "panos_num"})
-
-
-
-
-
-
-
-# %%
-from utils.spatialAnalysis import create_polygon_by_bbox, linestring_length
-rois = gpd.clip(df_edges, create_polygon_by_bbox(BBOX) )
-linestring_length(rois, 'length')
-map_visualize(rois, scale=.05)
-
-rois.name.fillna('', inplace=True)
-
-rois.road_type.unique()
-
-
-def merge_rodas_segment(roads):
-    net = Digraph( roads[['s','e']].values )
-
-    net.combine_edges()
-    result = net.combine_edges(roads)
-
-    ids_sorted = []
-    for _, road_ids in result:
-        ids_sorted += road_ids
-    
-    return ids_sorted
-
-
-# road_type = 'primary_link'
-# road_type = 'primary'
-road_type = 'secondary'
-road_type = 'tertiary'
-# road_type = 'trunk'
-roads = rois.query( f"road_type == '{road_type}' " ) 
-
-
-roads.query( f"s==7416650143 or e == 7416650143" )
-
-map_visualize(roads)
-
-# 文件组织形式，
-# 增加visited，记录已经遍历过的照片，
-# 合并首位相连的道路
-
-for road_name, df in roads.groupby('name'):
-    if road_name !='': continue
-    print(road_name)
-    rids = merge_rodas_segment(df)
-
-    for i in rids[:]:
-        pred_osm_road_by_rid(i, rois)
-
-
-
-
-for rid in roads.rid.unique():
-    pred_osm_road_by_rid(rid, rois)
-
-
-ls = rois.groupby('rid').sum().sort_values('length', ascending=False).length
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-test = query_df(df_edges, 'rid', 208128052)
-
-map_visualize(test)
-
-from utils.collection.roadNetwork import reverse_shp
-test.loc[:, 'geometry'] = test.geometry.apply( lambda x: reverse_shp(x) )
-
-# ! 尝试反转 道路，然后去匹配反方向的道路, 遍历后的顺序问题，解决一下
-roads = test
-roads.loc[:, 'rid'] = -roads.rid
-
-
-
-df_edges = df_edges.append( roads, ignore_index=True )
-
-

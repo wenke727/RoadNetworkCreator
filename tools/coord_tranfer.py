@@ -1,6 +1,7 @@
 import pandas as pd
 import coordTransform_py.CoordTransform_utils as ct
 
+ct.wgs84_to_gcj02(113.934572,22.541860)
 
 df = pd.read_excel('./点位选择-匹配经纬度-1218.xlsx', '整合表')
 df.dropna(inplace=True)

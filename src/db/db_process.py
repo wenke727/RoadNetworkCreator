@@ -127,17 +127,33 @@ def update_lane_num_in_DB():
     from scipy import stats
     df_memo = pd.read_csv(config['data']['df_pred_memo'])
     df_memo.loc[:, 'pred'] = df_memo.pred.apply( lambda x: eval(x) )
+    DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(new = False)
+
+    # DB_panos_bak = DB_panos.copy()
+    # DB_roads_bak = DB_roads.copy()
+    # DB_roads = DB_roads_bak.copy()
+    # DB_panos = DB_panos_bak.copy()
     
     # update the lane_num in roads
-    tmp = df_memo[['RID', 'lane_num']].groupby('RID').agg( lambda x: stats.mode(x)[0][0] ).reset_index()
-    DB_roads = DB_roads.merge(tmp, how='left')
-    DB_roads['lane_num'].fillna(-1, inplace=True)
+    tmp = df_memo[['RID', 'lane_num']].groupby('RID').agg( lambda x: stats.mode(x)[0][0] )
+    tmp.rename(columns={"lane_num":'lane_num_new'}, inplace=True)
 
-    # update the lane_num in panos
-    df_memo[['PID','DIR','lane_num']]
-    tmp = DB_panos[['PID','DIR']].reset_index().merge(df_memo[['PID','DIR','lane_num']], on=['PID','DIR'])
-    DB_panos.loc[tmp['index'], 'lane_num'] = tmp.lane_num
+    DB_roads = DB_roads.set_index('RID')
+    DB_roads = DB_roads.merge( tmp, left_index=True, right_index=True, how='left' )
+    DB_roads.loc[:, 'lane_num'] = DB_roads.lane_num_new
+    DB_roads.drop(columns=['lane_num_new'], inplace=True)
+    DB_roads.reset_index(inplace=True)
     
+    # update the lane_num in panos
+    tmp = DB_panos[['PID','DIR']].reset_index().merge(df_memo[['PID','DIR','lane_num']], on=['PID','DIR'])
+    tmp.rename(columns={"lane_num":'lane_num_new'}, inplace=True)
+    tmp.drop_duplicates(inplace=True)
+    
+    DB_panos = DB_panos.merge(tmp, on=['PID','DIR'], how='left')
+    DB_panos.loc[:, 'lane_num'] = DB_panos.lane_num_new
+    DB_panos.drop(columns=['lane_num_new', 'index'], inplace=True)
+    DB_panos.describe()
+
     store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
     
     return    
@@ -174,3 +190,8 @@ if __name__ == '__main__':
     
     extract_connectors_from_panos_respond( DB_pano_base, DB_roads )
 
+#%%
+    points = gpd.read_file('./points_longhua.geojson')
+    
+    points.merge(tmp, on=['PID','DIR'] ).describe()
+    

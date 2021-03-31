@@ -63,23 +63,30 @@ def get_features(feature, bbox=None, geom=None, in_sys='wgs84'):
     return res
 
 
+# def get_features_districts():
+
 if __name__ == '__main__':
     from utils.geo_plot_helper import map_visualize
-    
     # df = gpd.GeoDataFrame([{ 'geometry': bbox, 'index':0 }])
 
     res = get_features(feature='line', bbox=[113.929807, 22.573702, 113.937680, 22.578734])
-
     map_visualize(res)
-    
-    
     res.head(2).to_json()
     
     
-
+    from db.db_process import update_lane_num_in_DB
+    
+    
     area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
     area = area.query( "name =='龙华区'" )  
     tmp = area.iloc[0].geometry
+    
     lines = get_features( 'line', geom=tmp )
-
-
+    lines.lane_num.value_counts()
+    
+    
+    points = get_features( 'point', geom=tmp )
+    # lines.fillna(3, inplace=True)
+    
+    lines.to_file('./lines_longhua.geojson', driver="GeoJSON")
+    points.to_file('./points_longhua.geojson', driver="GeoJSON")

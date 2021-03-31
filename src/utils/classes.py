@@ -134,6 +134,9 @@ class Digraph:
                 path = [[pre,o]]
                 self.remove_edge(pre,o)
 
+            if o not in self.graph:
+                return 
+            
             # case: 0 indegree, > 2 outdegree
             if len(self.graph[o]) > 1:
                 o_lst = list( self.graph[o] )
@@ -165,6 +168,15 @@ class Digraph:
         return
 
     def combine_edges(self, roads=None, vis=False):
+        """roads 是一开始传入的roads的df文件
+
+        Args:
+            roads ([type], optional): [description]. Defaults to None.
+            vis (bool, optional): [description]. Defaults to False.
+
+        Returns:
+            [type]: [description]
+        """
         import copy
         graph_bak = copy.deepcopy(self.graph)
         prev_back = copy.deepcopy(self.prev.copy())
