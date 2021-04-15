@@ -330,30 +330,31 @@ class OSM_road_network:
         return df_all
 
 
-def tmp_obtain_test_set_panos():
+def create_test_dataset_for_cites(citis = ['北京','上海', '广州', '杭州'], store_path = '/home/pcl/Data/minio_server/input/'):
     # fn = '/home/pcl/Data/minio_server/input/shenzhen_nanshan_road_osm.xml'
     from utils.osm2gmns.settings import link_type_no_dict, osm_highway_type_dict
 
-    citis = ['北京','上海', '广州', '杭州']
-
     for city in citis:
         city_pinyin= pinyin.get(city, format='strip')
-        fn = f'/home/pcl/Data/minio_server/input/{city_pinyin}_road_osm.xml'
-
-        osm_road = OSM_road_network(fn, city)
-        osm_road.get_osm_map_by_city(city)
-        osm_road.get_road_network_from_osm(fn,mask=None)
-        pickle.dump(osm_road, open(f'../input/road_network_osm_{city_pinyin}.pkl', 'wb'))
-        # osm_road = pickle.load( open(f'../input/road_network_osm_{city_pinyin}.pkl', 'rb') )
+        fn_osm = f'/home/pcl/Data/minio_server/input/road_network_osm_{city_pinyin}.pkl'
+        
+        if os.path.exists(fn_osm):
+            osm_road = pickle.load( open(fn_osm, 'rb') )
+        else:
+            fn = f'/home/pcl/Data/minio_server/input/{city_pinyin}_road_osm.xml'
+            osm_road = OSM_road_network(fn, city)
+            osm_road.get_osm_map_by_city(city)
+            osm_road.get_road_network_from_osm(fn,mask=None)
+            pickle.dump(osm_road, open(fn_osm, 'wb'))
 
         osm_road.edges.loc[:, 'link_type_no'] = osm_road.edges.road_type.apply( lambda x: link_type_no_dict[osm_highway_type_dict[x]] if x in osm_highway_type_dict else None )
         roads = osm_road.edges.query( "link_type_no < 5" )
         roads.loc[:, 'link'] = roads.road_type.apply(lambda x: 'link' in x)
 
-        records = roads.sample(1000, random_state=1)
+        records = roads.sample(2000, random_state=1)
         records.road_type.value_counts()
 
-        records.to_file(f'{city_pinyin}_test_pano.geojson', driver="GeoJSON")
+        records.to_file(f'{store_path}/{city_pinyin}_test_pano.geojson', driver="GeoJSON")
     
     pass
 

@@ -129,8 +129,8 @@ def update_lane_num_in_DB():
     df_memo.loc[:, 'pred'] = df_memo.pred.apply( lambda x: eval(x) )
     DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(new = False)
 
-    # DB_panos_bak = DB_panos.copy()
-    # DB_roads_bak = DB_roads.copy()
+    DB_panos_bak = DB_panos.copy()
+    DB_roads_bak = DB_roads.copy()
     # DB_roads = DB_roads_bak.copy()
     # DB_panos = DB_panos_bak.copy()
     

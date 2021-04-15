@@ -13,7 +13,6 @@ def lstr_pred_celery_version(fn):
     Returns:
         [type]: [description]
     """
-
     fn = fn.split('/')[-1] if '/' in fn else fn
     data = {
         "enable_tags": [123],
@@ -45,7 +44,6 @@ def lstr_pred_celery_version(fn):
 def lstr_pred(fn):
     fn = fn.split('/')[-1] if '/' in fn else fn
     r = requests.get( url=f"http://192.168.135.34:5000/lstr?fn={fn}" )  
-    # print(fn, r.status_code, r.json(), '...')
 
     return r.json()['result']
 
@@ -112,10 +110,7 @@ if __name__ == '__main__':
     res = lstr_pred(fn)
 
     # fn = '/Data/minio_server/panos/42fe8d-9555-1595-7843-afe68c_00_09005700121709091540114199Y_271.jpg'
-
     # res = lstr_pred(fn)
-
-
     draw_pred_lanes_on_img(res, './test.jpg', dot=True, debug_infos=[res['PID'], res['RID']],thickness=5, alpha=0.6)
     
     

@@ -64,7 +64,9 @@ def get_road_shp_by_search_API(road_name, sleep=False):
             }
 
         params['wd'] = road_name
-
+        
+        # TODO
+        # query_str = urllib.parse.urlencode(params, timeout=60)
         query_str = urllib.parse.urlencode(params)
         query_str = url+"?"+query_str
         if log is not None:
@@ -304,26 +306,6 @@ if __name__ == '__main__':
     road_name = '福中四路'
     df, _, _ = get_road_shp_by_search_API(road_name)
 
-    # get_roads_name_by_city()
-
-    # # ! attribute analysis
-    # # pd.Series(json_data['content'][1])
-    # # pd.DataFrame(json_data['content'][:2]).T
-
-    # """ 从`百度地图`中挑取感兴趣的道路 """
-    # # get_road_shp_by_search_API('乾丰二路')
-    # from baidu_map import roads_from_baidu_search_API
-    
-    # df_roads_info, df_segments = roads_from_baidu_search_API()
-    # df_roads_info.name.unique()
-    
-    # # lst = ['打石一路', '创科路', '打石二路', "仙茶路", "兴科一街", "创研路", '石鼓路', '茶光路','乾丰一路','乾丰二路']
-    # # df_segments.query(f"name in {lst}", inplace=True)
-    # df_segments.drop(columns=['s','e'] ).to_file(  os.path.join(input_dir, 'shenzhen_road_baidu.geojson'), driver="GeoJSON" )
-    # map_visualize(df_segments, scale=0.01)
-    # df_roads_info.columns
-    # edges = df_segments[['s', 'e']].values
-
 
     """" 获取深圳市的道路 """
     df = pd.read_csv('./road_name.csv')
@@ -345,18 +327,11 @@ if __name__ == '__main__':
     
     """ 分析道路的属性 """
     roads = roads_from_baidu_search_API()
-
     roads_futian = roads.query(" addr.str.contains('福田') ", engine='python')
-    
-
-    # roads.to_file( os.path.join( input_dir, "shenzhen_road_baidu_luohu_futian.geojson" ), driver="GeoJSON" )
-
     map_visualize(roads_futian, lyrs='s')
-
     list(roads_futian)
     
     roads_futian.catalogID.unique()
-    
     roads_futian.query(f"catalogID == 49").name_x.unique()
 
 

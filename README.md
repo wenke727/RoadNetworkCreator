@@ -1,5 +1,13 @@
 # RoadNetworkCreator_by_View
 
+## 函数说明
+
+* `draw_pred_lanes_on_img`: 
+  将pred结果绘制在图片上 
+* `pred_osm_road_by_rid`: 
+  预测OSM某一特定rid的道路的车道线，并按照特定的格式输出，如组合成一张照片，或者其他的组合
+
+
 ## Develope Log
 ### First Version
 - [X] Map visualization with satelite image

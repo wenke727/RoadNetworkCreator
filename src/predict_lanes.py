@@ -20,7 +20,7 @@ from db.features import get_features
 from db.db_process import load_from_DB, store_to_DB, update_lane_num_in_DB
 from utils.geo_plot_helper import map_visualize
 from utils.utils import load_config
-from utils.img_process import get_pano_id_by_rid, plot_pano_and_its_view, plt_2_Image, cv2_2_Image, combine_imgs
+from utils.img_process import get_pano_id_by_rid, plt_2_Image, cv2_2_Image, combine_imgs
 from utils.classes import Digraph
 from utils.spatialAnalysis import create_polygon_by_bbox, linestring_length
 from model.lstr import draw_pred_lanes_on_img, lstr_pred
@@ -401,7 +401,7 @@ def update_unpredict_panos(pano_lst, df_memo):
     return pano_lst, df_memo
 
 
-def pred_osm_road_by_rid(road_id, roads_of_intrest, combine_imgs=False, quality=100):
+def pred_osm_road_by_rid(road_id, roads_of_intrest, combineImgs=False, quality=100):
     """匹配osm某一条道路的所有panos，并预测
 
     Args:
@@ -423,23 +423,24 @@ def pred_osm_road_by_rid(road_id, roads_of_intrest, combine_imgs=False, quality=
     # else:
         # folder = LSTR_DEBUG + "/" + "_".join(  [str(road_level), str(road_id)] )
         
-    matching  = get_panos_of_road_by_id(road_id, df_edges, True)
+    matching  = get_panos_of_road_by_id(road_id, roads_of_intrest, False)
     if matching is None or matching.shape[0] == 0:
         return []
     
     gdf_road = df_edges.query( f"rid=={road_id}" )
     fns = []
-    for RID in matching.RID.values:
-        lane_shape_predict_for_segment(RID, df_memo, with_location=True, format=None, road_name=road_name,
+    for rid in matching.RID.values:
+        format = 'combine'
+        lane_shape_predict_for_segment(rid, df_memo, with_location=True, format=format, road_name=road_name,
                                        folder=folder, gdf_road=gdf_road, all_panos=False, quality=quality)
         # FIXME
-        fns.append( folder+f"/{RID}.jpg" )
+        fns.append( folder+f"/{rid}.jpg" )
 
-    if combine_imgs:  
+    if combineImgs:  
         combine = combine_imgs(fns)
 
         try:
-            combine.save(folder+f"_combine.jpg",  "JPEG", quality=100, optimize=True, progressive=True)
+            combine.save(folder+f"/road_id_combine.jpg",  "JPEG", quality=100, optimize=True, progressive=True)
         except IOError:
             # FIXME: write big picture
             combine = combine_imgs(fns[:20])
@@ -487,15 +488,10 @@ def merge_rodas_segment(roads):
     return ids_sorted
 
 
-
-# %%
-
 def lstr_pred_by_bbox(BBOX):
     rois = gpd.clip(df_edges, create_polygon_by_bbox(BBOX) )
     linestring_length(rois, 'length')
     rois.loc[rois.name.isna(), 'name'] = rois.loc[rois.name.isna()].road_type.apply( lambda x:  "".join([ i[0] for i in  x.split("_")]))
-
-
     sorted(rois.road_type.unique())
 
     road_type_lst =  [
@@ -516,17 +512,11 @@ def lstr_pred_by_bbox(BBOX):
 
     error_lst = ['error list']
     for road_type in road_type_lst[:]:
-        # road_type = 'trunk'
-        # road_type = 'primary'
-        # road_type = 'primary_link'
-        # road_type = 'secondary'
-        # road_type = 'tertiary'
         roads = rois.query( f"road_type == '{road_type}' " ) 
         # map_visualize(roads)
 
         for road_name, df in roads.groupby('name'):
             # if road_name !='_': continue
-            # print(road_name)
             rids = merge_rodas_segment(df)
 
             for i in rids[:]:
@@ -537,29 +527,39 @@ def lstr_pred_by_bbox(BBOX):
 
     return error_lst
 
+pred_osm_road_by_rid(208128052, df_edges, True)
 
-BBOX = [113.92131,22.5235, 113.95630,22.56855] # 科技园片区
-lstr_pred_by_bbox(BBOX)
-BBOX = [114.04133,22.52903, 114.0645,22.55213] # 福田核心城区
-lstr_pred_by_bbox(BBOX)
+# %%
 
-try:
-    pickle.dump(VISITED, open('./log/VISITED.pkl', 'wb'))
-    pickle.dump(ROAD_PANO_COUNT_DICT, open('./log/ROAD_PANO_COUNT_DICT.pkl', 'wb'))
-except:
-    pass
 
-try:
-    with open("./log/error_road.log", 'w') as f:
-        f.write(  "\n".join(error_lst) )
-except:
-    pass
+if __name__ == "__main__":
+    BBOX = [113.92131,22.5235, 113.95630,22.56855] # 科技园片区
+    lstr_pred_by_bbox(BBOX)
+    BBOX = [114.04133,22.52903, 114.0645,22.55213] # 福田核心城区
+    lstr_pred_by_bbox(BBOX)
+
+    try:
+        pickle.dump(VISITED, open('./log/VISITED.pkl', 'wb'))
+        pickle.dump(ROAD_PANO_COUNT_DICT, open('./log/ROAD_PANO_COUNT_DICT.pkl', 'wb'))
+    except:
+        pass
+
+    try:
+        with open("./log/error_road.log", 'w') as f:
+            f.write(  "\n".join(error_lst) )
+    except:
+        pass
 
 #%%
 
 
-
-
+# # 合并成一张大图
+# road_id = 243387686
+# roads_of_intrest = df_edges.copy()
+# combineImgs = True
+# pred_osm_road_by_rid(243387686, df_edges, True)
+# pred_osm_road_by_rid(529070115, df_edges, True)
+# pred_osm_road_by_rid(208128052, df_edges, True)
 
 
 

@@ -16,9 +16,10 @@ Y_MAX  = 720 - 10
 Y_AXIS = pd.DataFrame( np.linspace( 240, Y_MAX, (Y_MAX - Y_MIN)//10+1 ).astype(np.int), columns=['y'] )
 
 pano_dir = "/home/pcl/Data/minio_server/panos"
-label_dir = '../../../data/label_data'
-label_remove_dir = '../../../data/remove'
-save_path = "../../../data/LaneDetection"
+label_dir = '../../../data/label_data_210406'
+# label_remove_dir = '../../../data/remove'
+label_remove_dir = '../../../data/input'
+save_path = "../../../data/LaneDetection_checked"
 # save_path = "/home/pcl/Data/TuSimple/LaneDetection"
 # mv * /home/pcl/Data/TuSimple/LaneDetection
 
@@ -28,7 +29,7 @@ label_lst = []
 for f in os.listdir(label_dir):
     if f.replace('.json', '') in labels_remove:
         continue
-    label_lst.append(f)
+    label_lst.append("_".join(f.split("_")[-4:]))
 
 print( "label_lst: ", len(label_lst))
 
@@ -123,7 +124,7 @@ def label_process_batch( origin_img=True, write_label_to_img=True):
     # transfer lables
     res = []
     error_lst = []
-    for label_file in tqdm(f_lst, "tranfer labels"):
+    for label_file in tqdm(f_lst[:10], "tranfer labels"):
         fn = label_file.split(".")[0]
         try:
             label_pano = Lane_label( fn, os.path.join( save_path, 'clips'), label_dir )
@@ -201,6 +202,7 @@ def copy_to_LSTR_docker():
     
     return
 
+
 if  __name__ == '__main__':
     # label_process(os.listdir( label_dir ))
     label_process_parrallel(label_lst)
@@ -217,22 +219,4 @@ if  __name__ == '__main__':
     # label_pano.plot('./test.jpg')
 
     # transfer to LSTR docker
-
     
-
-# from ..utils.utils import clear_folder
-
-# clear_folder( "../../../data/label_data" )
-
-# #%%
-# import zipfile
-# import rarfile
-# zip_folder ='/home/pcl/Data/minio_server/label_data'
-
-# fn_lst = os.listdir(zip_folder)
-
-
-# f = zipfile.ZipFile(os.path.join(zip_folder, fn_lst[0]) )
-
-# rf = rarfile.RarFile(os.path.join(zip_folder, fn_lst[0])) 
-# rf.extractall(label_dir+"/test") 

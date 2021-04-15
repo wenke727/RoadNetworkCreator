@@ -148,7 +148,7 @@ def _matching_panos_path_to_network( road, DB_roads=DB_roads, vis=True, vis_step
 
 def get_panos_of_road_by_id(road_id, df_edges, vis=False, save=False):
     # ! # FIXME
-    """通过frnchet距离匹配某条道路的百度街景pano轨迹，并输出
+    """通过frenchet距离匹配某条道路的百度街景pano轨迹，并输出
 
     Args:
         road_id ([type]): [description]
@@ -191,7 +191,6 @@ def get_panos_of_road_by_id(road_id, df_edges, vis=False, save=False):
         matching.to_file( f'../output/tmp_road_match_{road_id}_{id}.geojson', driver="GeoJSON" )
     
     return matching
-
 
 
 def group_panos_by_road(road_id, df_matching, df_edges=df_edges):
@@ -298,6 +297,7 @@ def get_panos_of_road_and_indentify_lane_type_by_id( road_id, df_edges, vis=Fals
     matching = get_panos_of_road_by_id(road_id, df_edges, vis, save)
     if matching is None: return None
 
+    connecters = DB_connectors.copy()
     att_lst = ['PID_start', 'PID_end', 'length']
     a = _get_links_by_pids( matching.PID_end.values.tolist(), connecters )
     b = DB_roads.query( f"PID_start in {a.PID_end.values.tolist()} and PID_start == PID_end" )[att_lst] if a is not None else None
@@ -478,6 +478,9 @@ if False:
     matching1 = get_panos_of_road_and_indentify_lane_type_by_id(362735582, df_edges, True)
     matching  = get_panos_of_road_by_id(362735582, df_edges, True)
 
-    road_id = 362735582
+    # 科技中二路
+    road_id = 208128052
+    matching1 = get_panos_of_road_and_indentify_lane_type_by_id(road_id, df_edges, True)
+    
     
     # %%

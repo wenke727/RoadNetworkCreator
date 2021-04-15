@@ -1,5 +1,5 @@
 data:
-  DB: postgresql://postgres:123456@192.168.135.34:5432/road_network
+  DB: postgresql://postgres:pcl@A5A@192.168.135.34:5432/road_network
   pano_dir: /home/pcl/Data/minio_server/panos
   pano_group_dir: /home/pcl/Data/minio_server/panos_data/Longgang
   tmp: /home/pcl/Data/minio_server/tmp

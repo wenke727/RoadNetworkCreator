@@ -1,6 +1,7 @@
 import cv2
 import os
 import shutil
+import numpy as np
 
 
 def crop_img_for_lable2( fn ):
@@ -10,6 +11,8 @@ def crop_img_for_lable2( fn ):
 
 def resize_pano_img_for_training( fn, save_path=None, resize=(1280, 720) ):
     img = cv2.imread(fn)
+    if np.max(img) is None: return False
+    
     cv2.imwrite( save_path, cv2.resize(img, resize) )
     return 
 
