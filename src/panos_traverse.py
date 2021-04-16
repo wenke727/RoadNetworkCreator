@@ -15,10 +15,10 @@ from db.db_process import load_from_DB
 from pano_img import get_pano_ids_by_rid, get_staticimage, pano_dir
 from utils.geo_plot_helper import map_visualize
 from pano_img import PANO_log
-
-DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
-
 from panos.panoAPI import get_panos
+
+# DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
+
 
 
 def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
@@ -48,7 +48,7 @@ def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
         fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
         if not os.path.exists(fn):
             params = {'pid': pid, 'heading': heading, 'path': fn}
-            print(params)
+            print('\t',params)
             result = get_panos(params)
             res.append(result)
             pre_heading = heading
@@ -56,27 +56,35 @@ def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
     return res, df_pids
 
 
+def count_panos_num_by_area():
+    # DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
+    area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs_with_Dapeng.geojson')
+    df = gpd.sjoin(left_df=area, right_df=DB_panos, op='contains').groupby('name')[['DIR']].count()
+    
+    return df
+
+
 def get_panos_imgs_by_bbox():
     folder = './images'
     dst    = "~/Data/TuSimple/LSTR/lxd"
     
-    bbox=[113.92348,22.57034, 113.94372,22.5855] # 留仙洞区域
-    bbox = [113.92131,22.52442, 113.95630,22.56855] # 科技园片区
+    # bbox=[113.92348,22.57034, 113.94372,22.5855] # 留仙洞区域
+    # bbox = [113.92131,22.52442, 113.95630,22.56855] # 科技园片区
     # bbox=[113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
     bbox = [114.04133,22.52903, 114.0645,22.55213] # 福田核心城区
     
     area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
-    
-    area = area.query( "name =='坪山区'" ).iloc[0].geometry
+    area = area.query( "name =='龙岗区'" ).iloc[0].geometry
     # area = area.query( "name ==''" )  
     
     features = get_features('line', geom = area)
+    panos = get_features('point', geom = area)
 
     # features = get_features('line', bbox=bbox)
     res    = []
     count = 0
     for rid in features.RID.unique():
-        info, _ = traverse_panos_by_rid(rid, DB_panos, log=PANO_log, all=True)
+        info, _ = traverse_panos_by_rid(rid, panos, log=PANO_log, all=True)
         res += info
         count += 1
         # if count > 500: break
@@ -89,3 +97,8 @@ def get_panos_imgs_by_bbox():
 
 if __name__ == '__main__':
     get_panos_imgs_by_bbox()
+
+    # count_panos_num_by_area()    
+    
+
+

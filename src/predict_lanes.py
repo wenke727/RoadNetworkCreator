@@ -10,7 +10,7 @@ import PIL
 from PIL import Image
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from shapely.geometry import Point
+from shapely.geometry import Point, LineString
 import numpy as np
 from tqdm import tqdm
 
@@ -47,6 +47,37 @@ VISITED = set()
 ROAD_PANO_COUNT_DICT = {}
 
 
+def _get_revert_df_edges(road_id, df_edges, vis=False):
+    """create the revert direction edge of rid in OSM file
+
+    Args:
+        road_id ([type]): the id of road
+        df_edges ([type]): gdf create by 
+        vis (bool, optional): plot the process or not. Defaults to False.
+
+    Returns:
+        [gdf]: the geodataframe of revert edge
+    """
+    road_id = road_id if road_id > 0 else -road_id
+    df_tmp = df_edges.query(f"rid == {road_id} ")
+
+    df_tmp.rid = -df_tmp.rid
+    df_tmp.loc[:, ['s','e']] = df_tmp.loc[:, ['e','s']].values
+    df_tmp.loc[:, 'index'] = df_tmp['index'].max() - df_tmp.loc[:, 'index']
+    df_tmp.loc[:, 'geometry'] = df_tmp.geometry.apply( lambda x: LineString(x.coords[::-1]) )
+    df_tmp.loc[:, 'pids'] = df_tmp.pids.apply( lambda x: ";".join( x.split(';')[::-1] ) )
+    df_tmp.sort_values(by='index', inplace=True)
+    # gpd.GeoDataFrame(pd.concat( [df_edges.query(f"rid == {road_id} "), df_tmp] )).to_file('./test.geojson', driver="GeoJSON")
+
+    if vis:
+        from road_matching import get_panos_of_road_and_indentify_lane_type_by_id
+        matching0 = get_panos_of_road_and_indentify_lane_type_by_id(-road_id, df_tmp, False)
+        matching1 = get_panos_of_road_and_indentify_lane_type_by_id(road_id, df_edges, False)
+        _, ax = map_visualize(matching0, scale =0.001)
+        matching1.plot(column='level_0', legend=True, ax=ax, cmap='jet')
+        matching0.plot(column='level_0', legend=True, ax=ax, cmap='jet')
+
+    return df_tmp
 
 ###
 # ! SQL related
@@ -427,11 +458,11 @@ def pred_osm_road_by_rid(road_id, roads_of_intrest, combineImgs=False, quality=1
     if matching is None or matching.shape[0] == 0:
         return []
     
-    gdf_road = df_edges.query( f"rid=={road_id}" )
+    gdf_road = roads_of_intrest.query( f"rid=={road_id}" )
     fns = []
     for rid in matching.RID.values:
         format = 'combine'
-        lane_shape_predict_for_segment(rid, df_memo, with_location=True, format=format, road_name=road_name,
+        lane_shape_predict_for_segment(rid, df_memo, with_location=True, format=format, road_name=f"{road_id}_{road_name}",
                                        folder=folder, gdf_road=gdf_road, all_panos=False, quality=quality)
         # FIXME
         fns.append( folder+f"/{rid}.jpg" )
@@ -440,13 +471,13 @@ def pred_osm_road_by_rid(road_id, roads_of_intrest, combineImgs=False, quality=1
         combine = combine_imgs(fns)
 
         try:
-            combine.save(folder+f"/road_id_combine.jpg",  "JPEG", quality=100, optimize=True, progressive=True)
+            combine.save(LSTR_DEBUG+f"/{road_id}_combine.jpg",  "JPEG", quality=100, optimize=True, progressive=True)
         except IOError:
             # FIXME: write big picture
             combine = combine_imgs(fns[:20])
             PIL.ImageFile.MAXBLOCK = int(combine.size[0] * combine.size[1] * 2)
             combine.resize( (int(i/2) for i in combine.size) )
-            combine.save(folder+f"_combine.jpg", "JPEG", quality=70, optimize=True)
+            combine.save(LSTR_DEBUG+f"/{road_id}_combine.jpg", "JPEG", quality=70, optimize=True)
         plt.close()
 
     return fns
@@ -527,12 +558,13 @@ def lstr_pred_by_bbox(BBOX):
 
     return error_lst
 
-pred_osm_road_by_rid(208128052, df_edges, True)
 
-# %%
 
+
+#%%
 
 if __name__ == "__main__":
+    import pickle
     BBOX = [113.92131,22.5235, 113.95630,22.56855] # 科技园片区
     lstr_pred_by_bbox(BBOX)
     BBOX = [114.04133,22.52903, 114.0645,22.55213] # 福田核心城区
@@ -544,11 +576,12 @@ if __name__ == "__main__":
     except:
         pass
 
-    try:
-        with open("./log/error_road.log", 'w') as f:
-            f.write(  "\n".join(error_lst) )
-    except:
-        pass
+    # 获取某一道路反方向的大图
+    tmp = _get_revert_df_edges(-208128052, df_edges)
+    pred_osm_road_by_rid(-208128052, tmp, True)
+
+    pred_osm_road_by_rid(208128052, df_edges, True)
+
 
 #%%
 

@@ -1,7 +1,9 @@
 #%%
 import os
 import urllib
+import requests
 import json
+import threading
 import pandas as pd
 import geopandas as gpd
 import numpy as np 
@@ -31,6 +33,16 @@ pano_dir  = config['data']['pano_dir']
 input_dir = config['data']['input_dir']
 pano_API_log = LogHelper(log_dir=config['data']['log_dir'], log_name='panos_base.log').make_logger(level=logbook.INFO)
 DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
+
+PROXY_POOL_URL = 'http://192.168.135.34:5555/random'
+
+def get_proxy():
+    try:
+        response = requests.get(PROXY_POOL_URL)
+        if response.status_code == 200:
+            return response.text
+    except ConnectionError:
+        return None
 
 
 def get_road_buffer(road_name, buffer=100):
@@ -114,6 +126,7 @@ def query_pano(x=None, y=None, pano_id=None, visualize=False, add_to_DB=True, ht
     if pano_id is None:
         url       = f'https://mapsv0.bdimg.com/?qt=qsdata&x={x}&y={y}'
         request   = urllib.request.Request(url=url, method='GET')
+        # request = requests.get( url, timeout=60, proxies={'http': get_proxy()}  )
         json_data = json.loads(urllib.request.urlopen(request).read())
     
         if 'content' in json_data:
@@ -506,14 +519,15 @@ def traverse_panos_by_road_name_new(road_name = '龙华人民路', auto_save_db=
 if __name__ == "__main__":
     # for i in ['玉翠三街', '建辉路','布龙路', '油松路']:
         # traverse_panos_by_road_name_new(i)
+
     BBOX = [113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
-    # area = create_polygon_by_bbox(BBOX)
+    area = create_polygon_by_bbox(BBOX)
+
+    # area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
+    # area = area.query( "name =='福田区'" ).iloc[0].geometry
 
     # step 1: 读取龙华区的道路数据
     df_edges = gpd.read_file('/home/pcl/Data/minio_server/input/edges_Shenzhen.geojson')
-    area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
-    print(area)
-    area = area.query( "name =='龙岗区'" ).iloc[0].geometry
     tmp = gpd.clip(df_edges, area, True)
 
     print('start ...')
@@ -530,6 +544,7 @@ if __name__ == "__main__":
     road_type_filter = ['residential', 'construction']
     df_unvisited = tmp.query( f"index not in {visited} and road_type not in {road_type_filter}" )
 
+    df_unvisited.set_geometry('geometry', inplace=True)
     # df_unvisited.plot()
     # df_unvisited
 
@@ -550,41 +565,42 @@ if __name__ == "__main__":
     store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
     
 
-# # %%
-# # step 5: round 2, 针对剩余的情况进行检查
+# %%
+# step 5: round 2, 针对剩余的情况进行检查
 
-#     max_level = 100; auto_save_db = True; buffer = 100/110/1000
+if False:
+    max_level = 100; auto_save_db = True; buffer = 100/110/1000
     
-#     df_unvisited.loc[:,'start'] = df_unvisited['geometry'].apply(lambda x:  ','.join( map(str, wgs_to_bd_mc(*x.coords[0])))) 
-#     df_unvisited.loc[:, 'end'] = df_unvisited['geometry'].apply(lambda x:  ','.join( map(str, wgs_to_bd_mc(*x.coords[-1])))) 
+    df_unvisited.loc[:,'start'] = df_unvisited['geometry'].apply(lambda x:  ','.join( map(str, wgs_to_bd_mc(*x.coords[0])))) 
+    df_unvisited.loc[:, 'end'] = df_unvisited['geometry'].apply(lambda x:  ','.join( map(str, wgs_to_bd_mc(*x.coords[-1])))) 
 
-#     visited_pids, visited_coord = set(), set()
-#     level = 0;  count = 0
+    visited_pids, visited_coord = set(), set()
+    level = 0;  count = 0
 
-#     # df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
-#     queue_df_roads = df_unvisited.copy()
-#     # map_visualize(df_roads)
+    # df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
+    queue_df_roads = df_unvisited.copy()
+    # map_visualize(df_roads)
 
-#     road_name = 'remain'
-#     # while queue_df_roads.shape[0] > 0:
+    road_name = 'remain'
+    # while queue_df_roads.shape[0] > 0:
 
-#     for index, road in queue_df_roads.iterrows():
-#         print(index)
-#         # starts  = get_road_origin_points(queue_df_roads)
-#         p = [float(x) for x in  road.start.split(',') ]
-#         coord = f"{p[0]:.2f},{p[1]:.2f}"
-#         visited_coord.add(coord)
+    for index, road in queue_df_roads.iterrows():
+        print(index)
+        # starts  = get_road_origin_points(queue_df_roads)
+        p = [float(x) for x in  road.start.split(',') ]
+        coord = f"{p[0]:.2f},{p[1]:.2f}"
+        visited_coord.add(coord)
         
-#         # log_extra_info = f"{road_name}, {level+1}"
-#         visited_pids_prev = visited_pids.copy()
-#         visited_pids = bfs_helper(*p, road.geometry.buffer(buffer), visited=visited_pids, pano_id=None, max_level=max_level, 
-#                                 console_log=True, log_extra_info='log_extra_info', auto_save_db=auto_save_db)
-#         level += 1
+        # log_extra_info = f"{road_name}, {level+1}"
+        visited_pids_prev = visited_pids.copy()
+        visited_pids = bfs_helper(*p, road.geometry.buffer(buffer), visited=visited_pids, pano_id=None, max_level=max_level, 
+                                console_log=True, log_extra_info='log_extra_info', auto_save_db=auto_save_db)
+        level += 1
 
-#         # unvisited_line = get_unvisited_line(road_name, 3.75*2)
-#         # unvisited_line.query( f"start not in {list(visited_coord)}", inplace=True )
+        # unvisited_line = get_unvisited_line(road_name, 3.75*2)
+        # unvisited_line.query( f"start not in {list(visited_coord)}", inplace=True )
 
-#         # if unvisited_line.shape[0] == 0: break
+        # if unvisited_line.shape[0] == 0: break
 
-# # %%
-# # %%
+# %%
+# %%

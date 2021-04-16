@@ -21,8 +21,6 @@ input_dir = config['data']['input_dir']
 PANO_log = LogHelper(log_dir=config['data']['log_dir'], log_name='pano_img.log').make_logger(level=logbook.INFO)
 
 
-
-
 def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
     """get static image from Baidu View with `pano id`
 
@@ -38,7 +36,8 @@ def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
     """
     
     # id = "09005700121902131650290579U"; heading = 87
-    if os.path.exists(path): return path
+    if os.path.exists(path): 
+        return path
 
     url = f"https://mapsv0.bdimg.com/?qt=pr3d&fovy=88&quality=100&panoid={pid}&heading={heading}&pitch=0&width=1024&height=576"
     request = urllib.request.Request(url=url, method='GET')
@@ -76,6 +75,7 @@ def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
 def get_pano_ids_by_rid(rid, DB_panos, vis=False):
     tmp = DB_panos.query( f" RID == '{rid}' " )
     if vis: map_visualize(tmp)
+    
     return tmp
 
 
@@ -125,15 +125,13 @@ def traverse_panos(df_panos):
         for index, item in df.iterrows():
             if not (item.Order == 0 or item.Order == df.shape[0]-2):
                 continue
-            res = get_staticimage( item.PID, item.DIR )
+            res = get_staticimage( item.PID, item.DIR, pano_dir )
             if res is not None:
                 time.sleep(random.uniform(2, 5))
 
 
-def query_static_imgs_by_road(name = '光侨路'):
+def query_static_imgs_by_road(name = '光侨路', pano_dir=pano_dir):
     # 根据道路获取其街景
-    # TODO 推送到minio服务器
-
     rids = DB_roads.query(f"Name == '{name}' ").RID.unique().tolist()
     df = DB_panos.query( f"RID in {rids}" )
 

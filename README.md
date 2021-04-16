@@ -6,7 +6,18 @@
   将pred结果绘制在图片上 
 * `pred_osm_road_by_rid`: 
   预测OSM某一特定rid的道路的车道线，并按照特定的格式输出，如组合成一张照片，或者其他的组合
-
+  ```
+  # /home/pcl/traffic/RoadNetworkCreator_by_View/src/predict_lanes.py
+  # 获取某一道路反方向的大图
+  tmp = _get_revert_df_edges(-208128052, df_edges)
+  pred_osm_road_by_rid(-208128052, tmp, True)
+  pred_osm_road_by_rid(208128052, df_edges, True)
+  ```
+* `traverse_panos_by_road_name_new`
+  以道路为到单位，遍历街景情况
+  ```
+  traverse_panos_by_road_name_new('打石一路', save_db=False)
+  ```
 
 ## Develope Log
 ### First Version
@@ -67,9 +78,9 @@ traverse the topo network obtained from Baidu View
 
 ### 2021年1月27日
 - [ ] 
-- [ ] 增加关于dict，若pano的照片在其他路段出现过的时候，可以选择忽略跳过
-- [ ] 双向道路移动
-- [ ] 考虑融合`百度`和`OSM`路网数据
+- [x] 增加关于dict，若pano的照片在其他路段出现过的时候，可以选择忽略跳过
+- [x] 双向道路移动
+- [x] 考虑融合`百度`和`OSM`路网数据
 - [ ] 通过街景的情况识别`交叉口`，下一步识别是否为信号灯控制交叉口
 - [ ] 实现加速遍历, 想法是两组的点坐标进行空间匹配
 - [ ] 最后生成车道级别的路网，参考 AnyLogic`Converting GIS shapefile to a road network`
