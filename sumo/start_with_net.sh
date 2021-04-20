@@ -1,6 +1,8 @@
 export SUMO_HOME=/usr/share/sumo
 # netconvert
- /usr/share/sumo/bin/netconvert --node-files osm.nod.xml --edge-files osm.edg.xml -o osm_new.net.xml -t /usr/share/sumo/data/typemap/osmNetconvert.typ.xml --geometry.remove --roundabouts.guess --ramps.guess -v --junctions.join --tls.guess-signals --tls.discard-simple --tls.join --output.original-names --junctions.corner-detail 5 --output.street-names --tls.default-type actuated  --keep-edges.by-vclass passenger
+# /usr/share/sumo/bin/netconvert --node-files osm.nod.xml --edge-files osm.edg.xml -t /usr/share/sumo/data/typemap/osmNetconvert.typ.xml  --precision 2 --precision.geo 6 --offset.disable-normalization true -o osm.net.xml
+
+ /usr/share/sumo/bin/netconvert --node-files osm.nod.xml --edge-files osm.edg.xml -o osm.net.xml -t /usr/share/sumo/data/typemap/osmNetconvert.typ.xml --geometry.remove --roundabouts.guess --ramps.guess -v --junctions.join --tls.guess-signals --tls.discard-simple --tls.join --output.original-names --junctions.corner-detail 5 --output.street-names --tls.default-type actuated  --keep-edges.by-vclass passenger
 # polyconvert
 /usr/share/sumo/bin/polyconvert -v --osm.keep-full-type --type-file /usr/share/sumo/data/typemap/osmPolyconvert.typ.xml --osm-files osm_bbox.osm.xml -n osm.net.xml -o ./osm.poly.xml --save-configuration osm.polycfg
 /usr/share/sumo/bin/polyconvert -c osm.polycfg

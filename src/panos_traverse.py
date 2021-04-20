@@ -57,7 +57,7 @@ def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
 
 
 def count_panos_num_by_area():
-    # DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
+    DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
     area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs_with_Dapeng.geojson')
     df = gpd.sjoin(left_df=area, right_df=DB_panos, op='contains').groupby('name')[['DIR']].count()
     
@@ -96,9 +96,9 @@ def get_panos_imgs_by_bbox():
 #%%
 
 if __name__ == '__main__':
-    get_panos_imgs_by_bbox()
+    # get_panos_imgs_by_bbox()
 
-    # count_panos_num_by_area()    
+    count_panos_num_by_area()    
     
 
 
