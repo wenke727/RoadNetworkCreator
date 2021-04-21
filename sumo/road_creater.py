@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from pyproj import CRS, Transformer
 from shapely.geometry import Point, LineString
 import warnings
+from collections import deque
 warnings.filterwarnings('ignore')
 
 sys.path.append("../src")
@@ -337,7 +338,7 @@ def get_road_changed_section(rid, vis=True, length_thres=20):
 def osm_road_segments_intervals(x, plst):
     def helpler(x):
         if 'cluster' in x:
-            print('cluster: ',x, [plst.index(int(i)) for i in x.split("_")[1:] if int(i) in plst ] )
+            # print('cluster: ',x, [plst.index(int(i)) for i in x.split("_")[1:] if int(i) in plst ] )
             id = max( [plst.index(int(i)) for i in x.split("_")[1:] if int(i) in plst ] )
         else:
             id = plst.index(int(x))
@@ -348,9 +349,8 @@ def osm_road_segments_intervals(x, plst):
 
 def lane_change_process_for_node(elem_lst, pids, new_intervals, id_lst, shape_lst):
     lane_num_lst = [i[2] for i in new_intervals]
-    # elem_lst = [origin_edge, copy.deepcopy(origin_edge)]
     for index, elem in enumerate(elem_lst):
-        elem.set('id', id_lst[index])
+        elem.set('id', str(id_lst[index]))
         elem.set('shape', shape_lst[index])
         
         elem.set('numLanes', str(lane_num_lst[index]))
@@ -378,12 +378,34 @@ def lane_change_process_for_node(elem_lst, pids, new_intervals, id_lst, shape_ls
                 if 'origTo' == record.get('key'):
                     elem.remove(record)
                     print('removing origTo')
+        if elem.get('from') != elem.get('to'):
+            sumo_net['edge_root'].append(elem)
+        else:
+            print("not add to sum_net", "*"*30)
+            print_elem( elem)            
+        info = {key: elem.get(key) for key in elem.keys()}
+        rid, order = id_lst[index].split("#")
+        info['rid'], info['order'] = int(rid), int(order)
+        for p in elem.findall('param'):
+            info[p.get('key')] = p.get('value')
         
-        sumo_net['edge_root'].append(elem)
+        if index == 0:
+            size = sumo_net['edge'].shape[0]
+            sumo_net['edge'].query(f" id!='{id_lst[index]}' ", inplace=True)
+            print("\ndrop origin record", id_lst[index], f"{size} -> {sumo_net['edge'].shape[0]}")
+            
+            # record_id = sumo_net['edge'].query(f" id=='{id_lst[index]}' ").index
+            # print("\ndrop origin record", id_lst[index], record_id.values)
+            # sumo_net['edge'].drop(record_id, inplace=True)
+            
+        sumo_net['edge'] = sumo_net['edge'].append(info, ignore_index=True)
+        
+        # edges.append(info)
 
-def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new, order_set):
+def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new, order_set, log=False):
     origin_start, origin_end = item.interval
-    print(f"split intervals {item.id}, origin: [{origin_start}, {origin_end}], insert: [{new_start}, {new_end}]")
+    print('\nLANE_CHANGE_PROCESS', "="*100)
+    print(f"\tsplit intervals {item.id}, origin: [{origin_start}, {origin_end}], insert: [{new_start}, {new_end}]")
 
     # TODO split functions
     s = origin_start if pd.isnull(item.origFrom) else pids.index(int(item.origFrom))
@@ -402,8 +424,8 @@ def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new,
     
     shape_lst = []
     for s, e, _ in new_intervals:
-        _check_pano_in_SUMO_node(pids[s])
-        _check_pano_in_SUMO_node(pids[e])
+        _check_pano_in_SUMO_node(pids[s], False)
+        _check_pano_in_SUMO_node(pids[e], False)
         shape_tmp = " ".join( [",".join([ str(i) for i in osm_nodeHash[p]['coords']]) for p in pids[s:e+1]] )
         shape_lst.append(shape_tmp)
     
@@ -415,7 +437,7 @@ def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new,
             cur_order += 1
         order_set.add(cur_order)
         order_lst.append(cur_order)
-    id_lst = [ f"{item.rid}#{i}"  for i in order_lst ]
+    id_lst = [ f"{int(item.rid)}#{int(i)}"  for i in order_lst ]
     
     print(f"id:\n\t{id_lst}")
     print(f"order:\n\t{order_lst}")
@@ -427,10 +449,10 @@ def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new,
     
     lane_change_process_for_node(elem_lst, pids, new_intervals, id_lst, shape_lst)
 
-    for _, elem in enumerate(elem_lst):
-        print("\n")
-        print_elem(elem)
-            
+    if log:
+        for _, elem in enumerate(elem_lst):
+            print_elem(elem, '\t')
+                
 def modify_road_shape(rid, dis_thres = 25):
     # rid = abs(rid)
     # rid= -rid
@@ -445,22 +467,59 @@ def modify_road_shape(rid, dis_thres = 25):
     # road = road[['id', 'from', 'to', 'numLanes', 'speed', 'shape', 'rid', 'order', 'interval']]
     order_set = set( road.order.values )
 
-    queue = change_pids[['intervals', 'lane_num']].values.tolist()[::-1]
+    queue = deque( change_pids[['intervals', 'lane_num']].values.tolist() )
     while queue:
-        [new_start, new_end], lane_num_new = queue.pop()
+        [new_start, new_end], lane_num_new = queue.popleft()
 
+        # FIXME update road in `sumo_net['edge']`
+        # FIXME origin: [30, 33], insert: [24, 32] 跨区间怎么处理？
         for index, item in road.iterrows():
             origin_start, origin_end = item.interval
             
-            if origin_start > new_end:
+            print(f"new: [{new_start}, {new_end}], origin[{origin_start}, {origin_end}]")
+            if origin_start >= new_end:
                 # print(f'\tbreak: {item.id}')
                 break
             elif origin_end < new_start:
                 continue
             else:
+                print( f"\n!!!! befor origin_start: ", f"new [{new_start}, {new_end}], origin[{origin_start}, {origin_end}]", " -> ", queue )
+                
+                if origin_start > new_start and origin_start != new_end:
+                    queue.appendleft([[origin_start, new_end], lane_num_new ])
+                    queue.appendleft([[new_start, origin_start], lane_num_new ])
+                    print( f"\n!!!! origin_start: ", f"new [{new_start}, {new_end}], origin[{origin_start}, {origin_end}]", " -> ", queue )
+                    break           
+                
+                print( f"\n!!!! post origin_start: ", f"new [{new_start}, {new_end}], origin[{origin_start}, {origin_end}]", " -> ", queue )
+                         
                 lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new, order_set)
+                
+                road = sumo_net['edge'].query(f"rid=={rid}").sort_values('order', ascending=True if rid >0 else False)
+                road.loc[:, 'interval'] = road.apply(lambda x: osm_road_segments_intervals(x, pids), axis=1)
+                print(road)
+                
                 # print('\t', item.id, new_start, new_end)
                 break
+
+def gdf_to_file_by_rid(rid):
+    """save the mathching record in the file
+
+    Args:
+        rid ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
+    if rid not in OSM_MATCHING_MEMO:
+        print('please check the rid in the road set or not')
+        return 
+    
+    df = OSM_MATCHING_MEMO[rid]['df']
+    df.loc[:, 'RID'] = df.loc[:, 'RID'].astype(str)
+    df.reset_index(inplace=True)
+    df.to_file(f'{rid}.geojson', driver="GeoJSON")
+    return df
 
 def _pre_process_fine_tune(name, osm_file, log=False):
     """
@@ -483,24 +542,20 @@ def _pre_process_fine_tune(name, osm_file, log=False):
     return flag
 
 def _post_process_fine_tune(name, osm_file, SUMO_HOME="/usr/share/sumo", log=False):
+    """
+    sumo releted process post fine tune
+    """
+
     flag = False
     indent(sumo_net['node_tree'].getroot())
     indent(sumo_net['edge_tree'].getroot())
     sumo_net['node_tree'].write('./osm/osm.nod.xml', encoding='utf-8')
     sumo_net['edge_tree'].write('./osm/osm.edg.xml', encoding='utf-8')
 
-    """
-    sumo releted process post fine tune
-    """
-    # assert os.path.exists(f'./{name}/{name}.net.xml'), "'osm.net.xml': No such file or directory"
-    # cmd_bck_net = f"""export SUMO_HOME=/usr/share/sumo; cd ./{name}; mv {name}.net.xml {name}_old.net.xml; ll; {SUMO_HOME}/bin/netconvert --node-files {name}.nod.xml --edge-files {name}.edg.xml -t /usr/share/sumo/data/typemap/osmNetconvert.typ.xml  --precision 2 --precision.geo 6 --offset.disable-normalization true -o {name}.net.xml
-    # """ 
-    # res = os.popen(cmd_bck_net).read()
-    # print(res)
     
     post_precess = f"cd ./{name}; ll; cp ../start_with_net.sh ./; sh start_with_net.sh "
     res = os.popen(post_precess).read()
-    print(res)
+    if log: print(res)
     
     if 'calling /usr/share/sumo/bin/duarouter' in res:
         flag = True
@@ -509,26 +564,12 @@ def _post_process_fine_tune(name, osm_file, SUMO_HOME="/usr/share/sumo", log=Fal
     return flag
 
 
-#%%
-# road_id = 529070115 # 打石一路
-# road_id = 243387686 # 创科路
-# OSM_MATCHING_MEMO = {}
-
-# RID_set = [ 231901941,231901939,208128050,208128051] # -208128058
-# RID_set = [road_id, -road_id]
-# OSM_MATCHING_MEMO[-rid]['df']
-
-
-#%%
-# 初始化
-rid = road_id = 208128052 # 科技中二路
-RID_set = [ road_id, -road_id, 208128058, 529249851, -529249851] # -208128058
-matching_and_predicting_panos(RID_set, df_edges, OSM_MATCHING_MEMO, vis=False)
 
 #%%
 # 208128058 check pass
-# FIXME: cluster_2402273648_278376591_8349563398 -> 2402273648: node in not on the edge
-# RID_set = [road_id, -road_id]
+
+# fine_tune_road_set = [name_to_id['高新中四道']] + [road_id, -road_id]
+fine_tune_road_set = [name_to_id['高新中四道']] 
 
 SUMO_HOME = "/usr/share/sumo"
 osm_file = './osm_bbox.osm.xml'
@@ -540,7 +581,7 @@ root = tree.getroot()
 osm_wayHash, osm_nodeHash = osm_parser(root)
 
 """粗调"""
-for rid in RID_set:
+for rid in fine_tune_road_set:
     if rid < 0:
         continue
     print(f'粗调: {rid}')
@@ -548,7 +589,6 @@ for rid in RID_set:
     item = osm_wayHash[rid]
     update_element_attrib(item['elem'], 'lanes', int(lane))
 
-# internal functions
 indent(root)
 tree.write('osm_bbox.osm.xml', encoding='utf-8')
 assert _pre_process_fine_tune(name, osm_file, False), 'check `_pre_process_fine_tune` functions'
@@ -558,10 +598,27 @@ sumo_net = parser_sumo_node_edge(name)
 add_coords_to_osm_node_hash(osm_nodeHash, OSM_CRS)
 
 """微调"""
-for rid in RID_set:
+for rid in fine_tune_road_set:
     modify_road_shape(rid)
 
-assert _post_process_fine_tune(name, osm_file, True), 'check `_post_process_fine_tune` functions'
+assert _post_process_fine_tune(name, osm_file, False), 'check `_post_process_fine_tune` functions'
 
+
+# %%
+
+df = gdf_to_file_by_rid(529249851)
+
+_, ax = map_visualize(df, color='gray', scale=0.01, figsize=(12,12))
+df.plot(ax=ax, column='index', legend=True)
+
+#%%
+# 初始化
+name_to_id = {'高新中四道': 529249851,
+              '科技中二路': 208128052
+              }
+rid = road_id = 208128052 # 科技中二路
+
+RID_set = [ road_id, -road_id, 208128058, 529249851, -529249851] # -208128058
+matching_and_predicting_panos(RID_set, df_edges, OSM_MATCHING_MEMO, vis=False)
 
 # %%
