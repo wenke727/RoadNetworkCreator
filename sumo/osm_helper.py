@@ -47,7 +47,7 @@ def add_coords_to_osm_node_hash(osm_nodeHash, OSM_CRS):
     Returns:
         [type]: [description]
     """
-    assert OSM_CRS is not None, 'please process `parser_sumo_node_edge` to obtain `OSM_CRS`'
+    # assert OSM_CRS is not None, 'please process `parser_sumo_node_edge` to obtain `OSM_CRS`'
     df = gpd.GeoDataFrame(osm_nodeHash).T
     df = df.set_crs(epsg=4326).to_crs(epsg=OSM_CRS)
     df.loc[:, 'coords'] = df.geometry.apply(lambda x: [ round(i,2) for i in x.coords[0]])

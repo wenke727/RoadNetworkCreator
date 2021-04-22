@@ -12,6 +12,6 @@ python /usr/share/sumo/tools/randomTrips.py -n osm.net.xml --fringe-factor 5  -o
 /usr/share/sumo/bin/duarouter -n ./osm.net.xml -r ./osm.passenger.trips.xml --ignore-errors --begin 0 --end 3600 --no-step-log --no-warnings -o routes.rou.xml
 /usr/share/sumo/bin/duarouter -n ./osm.net.xml -r ./osm.passenger.trips.xml --ignore-errors --begin 0 --end 3600 --no-step-log --no-warnings -o ./osm.passenger.trips.xml.tmp --write-trips
 # view
-echo """<viewsettings>\n\t<scheme name=\"standard\"/>\n\t<delay value=\"30\"/>\n</viewsettings>""" > osm.view.xml
+echo """<viewsettings>\n\t<scheme name=\"standard\"/>\n\t<delay value=\"15\"/>\n</viewsettings>""" > osm.view.xml
 # create config
 /usr/share/sumo/bin/sumo -n osm.net.xml --gui-settings-file osm.view.xml --duration-log.statistics --device.rerouting.adaptation-interval 10 --device.rerouting.adaptation-steps 18 -v --no-step-log --save-configuration osm.sumocfg --ignore-route-errors -r osm.passenger.trips.xml -a osm.poly.xml

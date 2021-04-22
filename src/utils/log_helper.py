@@ -21,7 +21,7 @@ def log_type(record, handler):
 
 
 class LogHelper(object):
-    def __init__(self, log_dir=BASE_DIR, log_name='log.log', backup_count=10):
+    def __init__(self, log_dir=BASE_DIR, log_name='log.log', backup_count=10, log_type=log_type):
         if not os.path.exists(log_dir):
             os.mkdir(log_dir)
         self.log_dir = log_dir
@@ -30,7 +30,8 @@ class LogHelper(object):
                                            date_format='%Y-%m-%d',
                                            backup_count=self.backup_count)
         self.handler = handler
-        handler.formatter = log_type
+        if log_type is not None:
+            handler.formatter = log_type
         handler.push_application()
 
     def get_current_handler(self):

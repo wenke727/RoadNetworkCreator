@@ -16,22 +16,33 @@ Y_MAX  = 720 - 10
 Y_AXIS = pd.DataFrame( np.linspace( 240, Y_MAX, (Y_MAX - Y_MIN)//10+1 ).astype(np.int), columns=['y'] )
 
 pano_dir = "/home/pcl/Data/minio_server/panos"
-label_dir = '../../../data/label_data_210406'
-# label_remove_dir = '../../../data/remove'
-label_remove_dir = '../../../data/input'
-save_path = "../../../data/LaneDetection_checked"
-# save_path = "/home/pcl/Data/TuSimple/LaneDetection"
-# mv * /home/pcl/Data/TuSimple/LaneDetection
+save_path = '/home/pcl/Data/LaneDetection'
 
-labels_remove = set([ x.replace('.jpg', '') for x in  os.listdir(label_remove_dir)])
+def make_dirs(save_path):
+    for i in ['gt', 'clips']:
+        path = os.path.join( save_path, i)
+        if not os.path.exists(path):
+            os.makedirs(path)
 
-label_lst = [] 
-for f in os.listdir(label_dir):
-    if f.replace('.json', '') in labels_remove:
-        continue
-    label_lst.append("_".join(f.split("_")[-4:]))
 
-print( "label_lst: ", len(label_lst))
+def normalize_naming(label_dir = '/home/pcl/traffic/data/1st_batch',
+                  pano_dir = pano_dir,
+                  label_remove_dir = None
+                  ):
+    labels_remove = set([ x.replace('.jpg', '') for x in  os.listdir(label_remove_dir)]) if label_remove_dir is not None else set()
+
+    label_lst = [] 
+    for f in os.listdir(label_dir):
+        if f.replace('.json', '') in labels_remove:
+            continue
+        fn = "_".join(f.split("_")[-4:])
+        label_lst.append(fn)
+        if fn != f:
+            os.rename( os.path.join(label_dir, f), os.path.join(label_dir, fn) )
+
+    print( "label_lst: ", len(label_lst))
+    
+    return label_lst
 
 
 class Lane_label():
@@ -178,21 +189,23 @@ def label_process( f_lst, origin_img=True, write_label_to_img=True):
     return res
 
 
-def label_process_parrallel(label_lst=None):
+def label_process_parrallel(label_dir, name):
+    global save_path
     num = 50
-    label_lst = os.listdir( label_dir ) if label_lst is not None else label_lst
+    label_lst = os.listdir( label_dir ) 
     data = pd.DataFrame(label_lst, columns=['pid'])
     data_grouped = data.groupby(data.index/num)
     results = Parallel(n_jobs=num)(delayed(label_process)(group.pid.values) for name, group in data_grouped)
 
     res = []
-    for i in results: res += i
+    for i in results: 
+        res += i
 
-    with open(f'{save_path}/label_data_nanshan_0129.json', 'w') as f:
-        f.write( '\n'.join([ i.replace(f"{save_path}/", '') for i in  res[:-500]])+"\n" )
+    with open(f'{save_path}/{name}.json', 'w') as f:
+        f.write( '\n'.join([ i.replace(f"{save_path}/", '') for i in  res])+"\n" )
 
-    with open(f'{save_path}/label_data_nanshan_0129_val.json', 'w') as f:
-        f.write( '\n'.join([ i.replace(f"{save_path}/", '') for i in  res[-500:]])+"\n" )
+    # with open(f'{save_path}/label_data_nanshan_0129_val.json', 'w') as f:
+    #     f.write( '\n'.join([ i.replace(f"{save_path}/", '') for i in  res[-500:]])+"\n" )
 
 
 def copy_to_LSTR_docker():
@@ -205,7 +218,38 @@ def copy_to_LSTR_docker():
 
 if  __name__ == '__main__':
     # label_process(os.listdir( label_dir ))
-    label_process_parrallel(label_lst)
+    # folder = '/home/pcl/traffic/data/1st_batch'
+    # name = folder.split("/")[-1]
+    # make_dirs(save_path)
+    # normalize_naming(label_dir = folder)
+    
+    # label_process_parrallel(label_dir, name)
+
+
+    # folder = '/home/pcl/traffic/data/2nd_batch'
+    # name = folder.split("/")[-1]
+    # make_dirs(save_path)
+    # normalize_naming(label_dir = folder)
+    
+    # label_process_parrallel(folder, name)
+
+
+
+    folder = label_dir = '/home/pcl/traffic/data/2nd_batch_edge_coverage'
+    name = folder.split("/")[-1]
+    make_dirs(save_path)
+    normalize_naming(label_dir = folder)
+    
+    label_process_parrallel(folder, name)
+
+
+
+    folder = label_dir = '/home/pcl/traffic/data/2nd_batch_zebra_crossing'
+    name = folder.split("/")[-1]
+    make_dirs(save_path)
+    normalize_naming(label_dir = folder)
+    
+    label_process_parrallel(folder, name)
 
     # copy_to_LSTR_docker()
     # scp_to_remote_server_89()
@@ -219,4 +263,4 @@ if  __name__ == '__main__':
     # label_pano.plot('./test.jpg')
 
     # transfer to LSTR docker
-    
+
