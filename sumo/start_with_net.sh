@@ -10,7 +10,8 @@ mv osm.net.xml osm.net_old.xml
 # randomTrips
 python /usr/share/sumo/tools/randomTrips.py -n osm.net.xml --fringe-factor 5  -o osm.passenger.trips.xml -e 3600 --vehicle-class passenger --vclass passenger --prefix veh --min-distance 300 --trip-attributes "departLane=\"best\"" --fringe-start-attributes "departSpeed=\"max\"" --allow-fringe.min-length 1000 --lanes --validate
 /usr/share/sumo/bin/duarouter -n ./osm.net.xml -r ./osm.passenger.trips.xml --ignore-errors --begin 0 --end 3600 --no-step-log --no-warnings -o routes.rou.xml
-/usr/share/sumo/bin/duarouter -n ./osm.net.xml -r ./osm.passenger.trips.xml --ignore-errors --begin 0 --end 3600 --no-step-log --no-warnings -o ./osm.passenger.trips.xml.tmp --write-trips
+# /usr/share/sumo/bin/duarouter -n ./osm.net.xml -r ./osm.passenger.trips.xml --ignore-errors --begin 0 --end 3600 --no-step-log --no-warnings -o ./osm.passenger.trips.xml.tmp --write-trips
+
 # view
 echo """<viewsettings>\n\t<scheme name=\"standard\"/>\n\t<delay value=\"15\"/>\n</viewsettings>""" > osm.view.xml
 # create config

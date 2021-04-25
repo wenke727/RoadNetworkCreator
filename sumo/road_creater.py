@@ -32,8 +32,15 @@ SUMO_LOG = g_log_helper.make_logger(level=logbook.INFO)
 
 OSM_CRS = None
 OSM_MATCHING_MEMO = {}
-
+"""
+# TODO
+    `osm class` 
+    `osm_wayHash`, `osm_nodeHash`
+    osm_wayHash[rid]['points'] if rid > 0 else osm_wayHash[-rid]['points'][::-1]
+"""
 #%%
+file = open("../log/sumo-2021-04-23.log", 'w').close()
+
 class SumoNet(object):
     def __init__(self, name, verbose=False, *args):
         global OSM_CRS
@@ -109,6 +116,11 @@ class SumoNet(object):
             return True
         
         return False    
+
+    def get_node(self, pid:str):
+        if str(pid) not in self.key_to_node:
+            return None
+        return self.key_to_node[str(pid)]
     
     def add_node(self, pid, osm_nodeHash):
         x, y = osm_nodeHash[int(pid)]['coords']
@@ -255,6 +267,26 @@ class MatchingPanos():
         
         return df
 
+    def plot_matching(self, rid, *args, **kwargs):
+        """plot the matching panos and show its lanenum in a color theme map
+
+        Args:
+            rid ([type]): [description]
+
+        Returns:
+            [type]: [description]
+        """
+        # matchingPanos.gdf_to_file_by_rid(name_to_id['科苑北路'], './')
+        df = self.gdf_to_file_by_rid(rid)
+        if df is None:
+            print(f"plot rid matching error, for the geodataframe {rid} is None")
+        
+        df.loc[:, 'lane_num'] = df.loc[:, 'lane_num'].astype(str)
+        _, ax = map_visualize(df, color='gray', scale=0.05, *args, **kwargs)
+        df.plot(column='lane_num', ax=ax, legend=True)
+        
+        return df
+    
     @property
     def size(self):
         return len(self.memo)
@@ -392,8 +424,6 @@ def insert_intervals(intervals, newInterval):
 def cal_dis_two_point(pid0, pid1):
     assert pid0 in osm_nodeHash and pid1 in osm_nodeHash, "check input"
     if 'coords' in osm_nodeHash[pid0]:
-        # a, b = osm_nodeHash[pid0]['coords'], osm_nodeHash[pid1]['coords']
-        # math.sqrt( (a[0]-b[0])*(a[0]-b[0]) + (a[1]-b[1])*(a[1]-b[1]) )
         dis = np.linalg.norm(np.array(osm_nodeHash[pid0]['coords']) - np.array(osm_nodeHash[pid1]['coords']))
     else:
         from haversine import haversine, Unit
@@ -404,7 +434,7 @@ def cal_dis_two_point(pid0, pid1):
     
     return dis
 
-def get_road_changed_section(rid, vis=True, length_thres=20):
+def get_road_changed_section(rid, vis=True, dis_thres=20):
     """获取变化的截面
 
     Args:
@@ -417,7 +447,7 @@ def get_road_changed_section(rid, vis=True, length_thres=20):
 
     def _lane_seg_intervals(lane_num_dict):
         intervals = []
-        for start, end, num in [(i, i+1, int(lane_num_dict[i])) for i in lane_num_dict ]:
+        for start, end, num in [(i, i+1, int(float(lane_num_dict[i]))) for i in lane_num_dict ]:
             merge_intervals(intervals, start, end, num)
 
         return intervals
@@ -436,7 +466,7 @@ def get_road_changed_section(rid, vis=True, length_thres=20):
         return change_pids
 
     panos = OSM_MATCHING_MEMO[rid]['df']
-    segments = panos.query(" lane_num != @ panos.lane_num.median() ")
+    segments = panos.query(" lane_num != @panos.lane_num.median() ")
     # 注意区间：左闭右开
     intervals = _lane_seg_intervals(segments['lane_num'].to_dict())
 
@@ -454,10 +484,10 @@ def get_road_changed_section(rid, vis=True, length_thres=20):
     change_pids.query("length != 0", inplace=True)
     
     attrs = ['pano_idx_0', 'pano_idx_1', 'lane_num']
-    keep      = change_pids.query(f"length >= {length_thres}")[attrs].values.tolist()
+    keep      = change_pids.query(f"length >= {dis_thres}")[attrs].values.tolist()
     if len(keep) < 1:
         return None
-    candidate = change_pids.query(f"length < {length_thres}")[attrs].values.tolist()
+    candidate = change_pids.query(f"length < {dis_thres}")[attrs].values.tolist()
 
     for i in candidate:
         keep = insert_intervals(keep, i)
@@ -474,8 +504,13 @@ def osm_road_segments_intervals(x, plst):
             # print('cluster: ',x, [plst.index(int(i)) for i in x.split("_")[1:] if int(i) in plst ] )
             id = max( [plst.index(int(i)) for i in x.split("_")[1:] if int(i) in plst ] )
         else:
+            # FIXME invalid literal for int() with base 10: '208128050#5-AddedOffRampNode'
             id = plst.index(int(x))
-        
+        try:
+            id = int(id)
+        except:
+            raise 
+                
         return id
 
     return [helpler(x['from']), helpler(x['to'])]
@@ -520,16 +555,15 @@ def lane_change_process_for_node(elem_lst, pids, new_intervals, id_lst, shape_ls
         if elem.get('from') == elem.get('to'):
             sumoNet.remove_edge_by_rid(elem.get('id'))
         
-        # FIXME `from` and `to` has the same id
+        # `from` and `to` has the same id
         if  elem.get('to') in elem.get('from') or elem.get('from') in elem.get('to'):
             status = sumoNet.remove_edge_by_rid(elem.get('id'))
             SUMO_LOG.info(f"Remove_edge_by_rid\n\t{elem.get('id')}: {status}")
         
-def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new, order_set, log=None, verbose=True):
+def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new, order_set, log=None, verbose=False):
     origin_start, origin_end = item.interval
     log_info = []
     log_info.append(f"LANE_CHANGE_PROCESS")
-    log_info.append(f"\tsplit intervals {item.id}, origin: [{origin_start}, {origin_end}], insert: [{new_start}, {new_end}]")
 
     s = origin_start if pd.isnull(item.origFrom) else pids.index(int(item.origFrom))
     e = origin_end   if pd.isnull(item.origTo)   else pids.index(int(item.origTo))
@@ -537,16 +571,18 @@ def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new,
                      [new_start, new_end  , lane_num_new], 
                      [new_end  , e        , int(item.numLanes)]
                     ]
-    print(new_intervals)
-    
+    # print(new_intervals)
     new_intervals = [[i,j,k] for i,j,k in new_intervals if i != j]
-    print(new_intervals)
-    # check the distance of last interval 
-    last_seg_dis = cal_dis_two_point( pids[new_end], pids[new_intervals[-1][1]])
-    if last_seg_dis < dis_thres:
-        _, end, _ = new_intervals.pop()
-        new_intervals[-1][1] = end
-    log_info.append(f"\tnew_intervals: {new_intervals}, the last segment dis is {last_seg_dis}")
+    # print(new_intervals)
+    log_info.append(f"\tsplit intervals {item.id}\n\t\torigin: [{origin_start}, {origin_end}], insert: [{new_start}, {new_end}] -> {str(new_intervals)}")
+
+    if len(new_intervals) > 1:
+        # check the distance of last interval 
+        last_seg_dis = cal_dis_two_point( pids[new_intervals[-1][0]], pids[new_intervals[-1][1]])
+        if last_seg_dis < dis_thres:
+            _, end, _ = new_intervals.pop()
+            new_intervals[-1][1] = end
+        log_info.append(f"\t\tthe last segment dis is {last_seg_dis:.0f}")
     
     shape_lst = []
     for s, e, _ in new_intervals:
@@ -566,7 +602,7 @@ def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new,
         order_lst.append(cur_order)
     id_lst = [ f"{int(item.rid)}#{int(i)}"  for i in order_lst ]
     
-    log_info.append(f"\tid: {id_lst}")
+    log_info.append(f"\n\tid: {id_lst}")
     log_info.append(f"\torder: {order_lst}")
     log_info.append(f"\tnew_intervals:{new_intervals}")
     log_info.append(f"\tshape_lst: {shape_lst}", )
@@ -586,21 +622,24 @@ def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new,
         for _, elem in enumerate(elem_lst):
             print_elem(elem, '\t')
                 
-def modify_road_shape(rid, dis_thres=25):
-    # TODO write log
+def modify_road_shape(rid, log=None, dis_thres=25):
     change_pids = get_road_changed_section(rid)
     if change_pids is None:
+        log.notice(f"Modify_road_shape [{rid}], not matching panos")
         return
     
     pids = osm_wayHash[rid]['points'] if rid > 0 else osm_wayHash[-rid]['points'][::-1]
     road = sumoNet.get_edge_df_by_rid(rid)
+    print(pids)
     road.loc[:, 'interval'] = road.apply(lambda x: osm_road_segments_intervals(x, pids), axis=1)
     order_set = set( road.order.values )
 
     queue = deque( change_pids[['intervals', 'lane_num']].values.tolist() )
+    log.notice(f"Modify_road_shape [{rid}], processing\n\tqueue: {queue}\n")
+    
     while queue:
         [new_start, new_end], lane_num_new = queue.popleft()
-        # print(f"new: [{new_start}, {new_end}], queue: {queue}")
+        print(f"cur: [{new_start}, {new_end}], queue: {queue}")
     
         if new_start == new_end:
             continue
@@ -615,20 +654,20 @@ def modify_road_shape(rid, dis_thres=25):
                 continue
             else:
                 # origin: [30, 33], insert: [24, 32] 跨区间怎么处理？
-                if origin_start > new_start and origin_start != new_end:
+                if new_start < origin_start and origin_start <= new_end <= origin_end:
                     queue.appendleft([[origin_start, new_end], lane_num_new ])
                     queue.appendleft([[new_start, origin_start], lane_num_new ])
                     # print( f"\n!!!! origin_start: ", f"new [{new_start}, {new_end}], origin[{origin_start}, {origin_end}]", " -> ", queue )
                     break           
                 
-                if new_start > origin_start and new_end > origin_end:
+                if origin_start <= new_start <= origin_end and new_end > origin_end:
                     queue.appendleft([[origin_end, new_end], lane_num_new ])
                     queue.appendleft([[new_start, origin_end], lane_num_new ])
                     # print( f"\n???? origin_start: ", f"new [{new_start}, {new_end}], origin[{origin_start}, {origin_end}]", " -> ", queue )
                     break
                 
                 # print( f"\n!!!! post origin_start: ", f"new [{new_start}, {new_end}], origin[{origin_start}, {origin_end}]", " -> ", queue )
-                lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new, order_set, SUMO_LOG)
+                lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new, order_set, log)
                 
                 road = sumoNet.get_edge_df_by_rid(rid)
                 road.loc[:, 'interval'] = road.apply(lambda x: osm_road_segments_intervals(x, pids), axis=1)
@@ -673,10 +712,12 @@ def _post_process_fine_tune(name, osm_file, log=False, SUMO_HOME="/usr/share/sum
     return flag
 
 
-
+################################
 
 # fine_tune_road_set = [name_to_id['高新中四道']] + [road_id, -road_id]
-fine_tune_road_set = [ name_to_id['科苑北路'] ]
+fine_tune_road_set = [ road_id, -road_id, 208128058, 529249851, 208128048, 489105647, 778460597, 231901941, name_to_id['科苑北路']] # -208128058
+fine_tune_road_set = [ 208128050 ] # , 
+
 
 SUMO_HOME = "/usr/share/sumo"
 osm_file = './osm_bbox.osm.xml'
@@ -705,15 +746,11 @@ add_coords_to_osm_node_hash(osm_nodeHash, OSM_CRS)
 
 """微调"""
 for rid in fine_tune_road_set:
-    modify_road_shape(rid)
+    modify_road_shape(rid, SUMO_LOG)
 
 assert _post_process_fine_tune(name, osm_file, False), 'check `_post_process_fine_tune` functions'
 
 
-
-
-# %%
-matchingPanos.gdf_to_file_by_rid(name_to_id['科苑北路'], './')
 
 
 
@@ -722,19 +759,30 @@ matchingPanos.gdf_to_file_by_rid(name_to_id['科苑北路'], './')
 name_to_id = {'高新中四道': 529249851,
               '科技中二路': 208128052,
               '科苑北路': 231901939,
+              '高新中二道': 208128050,
+              '科技中三路': 208128048,
+              '科技中一路': 278660698,
+              '高新中一道': 778460597
               }
 rid = road_id = 208128052 # 科技中二路
 
-RID_set = [ road_id, -road_id, 208128058, 529249851, -529249851, name_to_id['科苑北路']] # -208128058
+RID_set = [ road_id, -road_id, 208128058, 529249851, -529249851, 208128050, 208128048,489105647, 231901941,778460597, name_to_id['科苑北路']] # -208128058
 
 matchingPanos = MatchingPanos()
 matchingPanos.add_lst(RID_set, df_edges)
 OSM_MATCHING_MEMO = matchingPanos.memo
-# matchingPanos.save_memo()
+matchingPanos.save_memo()
 
 
 #%%
 # ! test for log
 
+df = matchingPanos.plot_matching(name_to_id['科苑北路'])
+
 
 # %%
+
+sumoNet.node
+
+osm_nodeHash
+
