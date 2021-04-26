@@ -20,11 +20,11 @@ def log_type(record, handler):
     return log_info
 
 def log_type_for_sumo(record, handler):
-    log_info = "[{date}] [{level}] [{filename}] [{func_name}] [{lineno}]\n{msg}".format(
+    log_info = "\n{func_name} ({level}, {date}, {filename}, {lineno})\n{msg}".format(
         date=record.time,# 日志时间
         level=record.level_name,                       # 日志等级
         filename=os.path.split(record.filename)[-1],   # 文件名
-        func_name=record.func_name,                    # 函数名
+        func_name=str.upper(record.func_name),                    # 函数名
         lineno=record.lineno,                          # 行号
         msg=record.message                             # 日志内容
     )
