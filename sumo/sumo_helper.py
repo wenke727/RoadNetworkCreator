@@ -6,7 +6,7 @@ from shapely.geometry import Point, LineString
 from pyproj import CRS, Transformer
 
 
-class SumoNet(object):
+class Sumo_Net(object):
     def __init__(self, name, verbose=False, *args):
         global OSM_CRS
         self.name = name

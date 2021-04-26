@@ -9,10 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 ## [1.0.03] - 2021-04-24
+### Added
+- `OSM_Net`新增类
 ### Changed
 - `label_json_parser.py` 增加对负样本的支持
 - 针对id有`AddedOffRampEdge`和`AddedOnRampEdge`的处理优化
   invalid literal for int() with base 10: '208128050#5-AddedOffRampNode'
+
 
 ## [1.0.02] - 2021-04-22
 ### Added
