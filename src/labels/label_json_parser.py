@@ -16,7 +16,7 @@ Y_MAX  = 720 - 10
 Y_AXIS = pd.DataFrame( np.linspace( 240, Y_MAX, (Y_MAX - Y_MIN)//10+1 ).astype(np.int), columns=['y'] )
 
 pano_dir = "/home/pcl/Data/minio_server/panos"
-save_path = '/home/pcl/Data/Culane/LaneDetection'
+save_path = '/home/pcl/Data/LaneDetection_0427'
 
 
 #%%
@@ -163,7 +163,7 @@ def label_process_parrallel(label_dir, name, save_path, negtive=True):
     res = []
     for i in results: 
         res += i
-    print(res)
+    print(f'write {len(res)} labels >> {save_path}/{name}.json')
     
     with open(f'{save_path}/{name}.json', 'w') as f:
         f.write( '\n'.join([ i.replace(f"{save_path}/", '') for i in  res])+"\n" )
@@ -262,53 +262,27 @@ if  __name__ == '__main__':
     # label_dir = '/home/pcl/Data/Culane/val/json'
     # main(label_dir)
     # pass
-
-    main('/home/pcl/Data/Culane/train/negtive_smaple', True)
-    main('/home/pcl/Data/Culane/val/negtive', True)
     
-    main("/home/pcl/Data/Culane/val/json", False)
-    main("/home/pcl/Data/Culane/train/json", False)
-
-    # label_process(os.listdir( label_dir ))
-   
-    # name = folder.split("/")[-1]
-    # make_dirs(save_path)
-    # normalize_naming(label_dir = folder)
-    # label_process_parrallel(folder, name)
-
-
-    # folder = '/home/pcl/traffic/data/2nd_batch'
-    # name = folder.split("/")[-1]
-    # make_dirs(save_path)
-    # normalize_naming(label_dir = folder)
-    # label_process_parrallel(folder, name)
-
-
-    # folder = label_dir = '/home/pcl/traffic/data/2nd_batch_edge_coverage'
-    # name = folder.split("/")[-1]
-    # make_dirs(save_path)
-    # normalize_naming(label_dir = folder)
-    # label_process_parrallel(folder, name)
-
-
-    # folder = label_dir = '/home/pcl/traffic/data/2nd_batch_zebra_crossing'
-    # name = folder.split("/")[-1]
-    # make_dirs(save_path)
-    # normalize_naming(label_dir = folder)
+    # 第二批 版本1
+    make_dir(save_path)
     
-    # labels= label_process_parrallel(folder, name)
-
-    # copy_to_LSTR_docker()
-    # scp_to_remote_server_89()
+    # main('/home/pcl/Data/Culane/train/negtive_smaple', True)
+    # main('/home/pcl/Data/Culane/val/negtive', True)
     
-    # label_pano = Lane_label( '09005700011601091410301692P', './', './' )
-    # record = label_pano.label_to_json()
-
-    # with open('./label.json', 'w') as f:
-    #     f.write(record)
+    # main("/home/pcl/Data/Culane/val/json", False)
+    # main("/home/pcl/Data/Culane/train/json", False)
     
-    # label_pano.plot('./test.jpg')
+    # main("/home/pcl/Data/Culane/test/json", False)
+    # main("/home/pcl/Data/Culane/test/negtive", True)
 
-    # transfer to LSTR docker
+    # 第二批 版本2
+    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/train/train/json", negtive=False)
+    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/train/负样本", negtive=True)
+
+    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/validate/validate/json", negtive=False)
+    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/validate/负样本", negtive=True)
+
+    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/test/test/json", negtive=False)
+    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/test/负样本", negtive=True)
 
 # %%
