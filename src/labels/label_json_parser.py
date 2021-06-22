@@ -243,14 +243,15 @@ def scp_to_remote_server_89():
     return     
 
 
-def main(label_dir = '/home/pcl/Data/Culane/train/json', negtive = True):
+def main(name, label_dir = '/home/pcl/Data/Culane/train/json', negtive = True):
     # label_dir = '/home/pcl/traffic/data/1st_batch'
-    name = "_".join(label_dir.split('/')[-2:])
-    save_path = f'/home/pcl/Data/LaneDetection/{name}'
+    sub_name = "_".join(label_dir.split('/')[-2:])
+    save_path = f'/home/pcl/Data/LaneDetection/{name}/{sub_name}'
+    
     normalize_naming(label_dir)
     make_dir(save_path)
     # label_process(os.listdir(label_dir), label_dir, save_path, resize_img=True, write_label_to_img=True )
-    label_process_parrallel(label_dir, name, save_path, negtive)
+    label_process_parrallel(label_dir, sub_name, save_path, negtive)
 
     return 
 
@@ -264,8 +265,6 @@ if  __name__ == '__main__':
     # pass
     
     # 第二批 版本1
-    make_dir(save_path)
-    
     # main('/home/pcl/Data/Culane/train/negtive_smaple', True)
     # main('/home/pcl/Data/Culane/val/negtive', True)
     
@@ -275,14 +274,25 @@ if  __name__ == '__main__':
     # main("/home/pcl/Data/Culane/test/json", False)
     # main("/home/pcl/Data/Culane/test/negtive", True)
 
-    # 第二批 版本2
-    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/train/train/json", negtive=False)
-    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/train/负样本", negtive=True)
+    # # 第二批 版本2
+    # main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/train/train/json", negtive=False)
+    # main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/train/负样本", negtive=True)
 
-    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/validate/validate/json", negtive=False)
-    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/validate/负样本", negtive=True)
+    # main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/validate/validate/json", negtive=False)
+    # main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/validate/负样本", negtive=True)
 
-    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/test/test/json", negtive=False)
-    main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/test/负样本", negtive=True)
+    # main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/test/test/json", negtive=False)
+    # main("/home/pcl/Data/minio_server/data/LaneDection_label_data/2_batch_ver2/test/负样本", negtive=True)
 
+
+    # 第三批
+    main('3_batch', "/home/pcl/Data/minio_server/data/LaneDection_label_data/3_batch/train/train/json_new", negtive=False)
+    main('3_batch', "/home/pcl/Data/minio_server/data/LaneDection_label_data/3_batch/train/负样本", negtive=True)
+
+    main('3_batch', "/home/pcl/Data/minio_server/data/LaneDection_label_data/3_batch/validate/validate/json_new", negtive=False)
+    main('3_batch', "/home/pcl/Data/minio_server/data/LaneDection_label_data/3_batch/validate/负样本", negtive=True)
+
+    main('3_batch', "/home/pcl/Data/minio_server/data/LaneDection_label_data/3_batch/test/test/json_new", negtive=False)
+    main('3_batch', "/home/pcl/Data/minio_server/data/LaneDection_label_data/3_batch/test/负样本", negtive=True)
+    
 # %%

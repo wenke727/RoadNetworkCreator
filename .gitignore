@@ -12,6 +12,7 @@ osm_bbox.osm.xml
 # Distribution / packaging
 cache/
 sumo/osm/
+sumo/osm_baseline/
 log/
 .Python
 build/

@@ -1,100 +1,70 @@
 # RoadNetworkCreator_by_View
 
-## 函数说明
+## API
 
-* `draw_pred_lanes_on_img`: 
-  将pred结果绘制在图片上 
-* `pred_osm_road_by_rid`: 
-  预测OSM某一特定rid的道路的车道线，并按照特定的格式输出，如组合成一张照片，或者其他的组合
-  ```
-  # /home/pcl/traffic/RoadNetworkCreator_by_View/src/predict_lanes.py
-  # 获取某一道路反方向的大图
-  tmp = _get_revert_df_edges(-208128052, df_edges)
-  pred_osm_road_by_rid(-208128052, tmp, True)
-  pred_osm_road_by_rid(208128052, df_edges, True)
-  ```
-* `traverse_panos_by_road_name_new`
-  以道路为到单位，遍历街景情况
-  ```
-  traverse_panos_by_road_name_new('打石一路', save_db=False)
-  ```
+### 视网膜系统
 
-## Develope Log
-### First Version
-- [X] Map visualization with satelite image
-- [X] Split into module: Baidu View related API, RoadNetwork analysis
-- [X] yaml文件的使用
-- [X] Traverse the road. How to deal with the road with two directions
-    * 将API反馈的路段逐一合并，巧妙利用端点的情况
-- [X] Image storage format: file or DB
-- [X] 等距离抽点：
-- [X] 引入*args, **kwargs参数控制函数参数的输入
-- [X] OSM dolwloader, 2020年12月3日
+启动
 
-### 2020年12月4日
-主要实现了区域的遍历、可视化、基础数据的抓取
-- [X] baidu瓦片编号解析
-- [X] BFS遍历方式
-- [X] bfs 增加遍历的区域
-- [X] links 绘制增加颜色，参考 https://www.cnblogs.com/feffery/p/12361421.html
-- [X] 数据去重
-- [X] 已存在的数据，避免重复访问 <- query_pano逻辑不够严谨，范围的不是道路终点的情况，把if改为while
-    con = DB_pano_base.Links.apply(lambda x:  not isinstance(x, str ))
-    con.sum()
-- [X] 增加数据库备份功能backup
-
-
-### 2020年12月9号
-目标
-* 实现`车道数量识别`
-* 以光侨路为例，构建`车道级别的仿真路网`demo
-* 交叉口识别 - 聚类算法
-* 道路标志识别
-
-traverse the topo network obtained from Baidu View
-- [X] 道路遍历代码修改，以每条线的起点为端点开始遍历
-- [X] get_road_shp_by_search_API增加缓存机制 -> `home\pcl\Data\minio_server\input\road_memo.csv`
-- [X] 霍夫变换 测试， 效果不佳
-- [X] GO语言重新编译
-- [X] 标注工具使用和辅助代码开发: 
-  - `/home/pcl/traffic/RoadNetworkCreator_by_View/tools/labels/label_json_parser.py`
-- [X] 图片数据裁剪 
-  - `/home/pcl/traffic/RoadNetworkCreator_by_View/tools/labels/label_helper.py`
-- [X] 道路相似度检测，考虑因素：`线形`和`角度
-- [X] Frenchet算法
-- [X] 重新采集图片,然后统一resize大小到`(1280, 720)`
-  
-### 2021年1月20日
-- [X] link筛选 -> 增加属性
-- [X] `get_road_shp_by_search_API`增加城市信息，减少搜索范围
-- [X] 增加位置信息`img_process.py`
-- [X] 按照道路匹配pano并开始采集数据`road_matching.py`
-- [X] 获取某个区域的道路名称 `get_roads_name_by_city`
-- [X] 将原有代码模块化划分
-- [X] 树上最长路径 [REF](https://www.lintcode.com/problem/longest-path-on-the-tree/description)
-- [X] 裁剪图片-> TuSimple格式： `crop_img_for_lable`, 该函数也有直接复制的功能，不进行裁剪
-- [X] pano_base代码增加`get_road_origin_points`， 获取道路的起始点，而不是针对每一个节点
-- [X] 区域级别的街景遍历 `raverse_panos_in_district_level`
-
-### 2021年1月27日
-- [ ] 
-- [x] 增加关于dict，若pano的照片在其他路段出现过的时候，可以选择忽略跳过
-- [x] 双向道路移动
-- [x] 考虑融合`百度`和`OSM`路网数据
-- [ ] 通过街景的情况识别`交叉口`，下一步识别是否为信号灯控制交叉口
-- [ ] 实现加速遍历, 想法是两组的点坐标进行空间匹配
-- [ ] 最后生成车道级别的路网，参考 AnyLogic`Converting GIS shapefile to a road network`
-
-
-# 数据说明
-
-
-## 研究区域
 ```
-    bbox=[113.92348,22.57034, 113.94372,22.5855] # 留仙洞区域
-    bbox=[113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
-    bbox = [114.04133,22.52903, 114.0645,22.55213] # 福田核心城区
+# physical machine
+cd /home/pcl/server/pcl/pano_data
+nohup python3 pano.py > pano.log &
 ```
 
+API情况
 
+- 获取临近点:
+  <http://192.168.135.15:4000/get_nearby_panos?lon=113.93412&lat=22.575369>
 
+- pano_data:
+  <http://192.168.135.15:4000/get_pano_data?feature=point&bbox=113.929807,22.573702,113.937680,22.578734>
+
+### 车道线预测API
+
+API
+
+- <http://192.168.135.15:5000/lstr?fn=91868b-159f-3c50-008c-55ec99_04_01005700001311231236314705I_253.jpg>
+
+  ```
+  # docker lstr
+  cd /Data/LaneDetection_PCL/LSTR
+  nohup sh start_web_api.sh > ../web_API.log  &
+  ```
+
+批量更新处理, 预测并更新街景车道线数量
+
+- Use the latest model to predict the lane number of each pano and update the attribute. The result is stored in `/Data/minio_server/input/lane_shape_predict_memo.csv`
+
+  ```
+  # docker lstr 
+  cd /Data/LaneDetection_PCL/LSTR
+  conda activate lstr
+  python predict.py
+  ```
+
+## 分布式街景爬虫
+
+借助celery实现分布式爬虫, git repo: <https://git.pcl.ac.cn/huangwk/pano_distributed_crawler>
+
+```
+# physical machine
+cd /home/pcl/traffic/pano_distributed_crawler
+cd ./src; nohup sh start_panos.sh &
+```
+
+## IP资源池
+
+简易高效的代理池
+
+API:
+
+- <http://localhost:5555/random> 获取一个随机可用代理
+
+启动
+
+```
+# phisical mechine 
+cd /home/pcl/traffic/ProxyPool
+docker-compose up
+```

@@ -1,8 +1,21 @@
 import os
+import sys
 import cv2 
 import requests
 import numpy as np
 import time
+import geopandas as gpd
+
+sys.path.append("../utils")
+from img_process import cv2_2_Image
+from utils import load_config
+from sqlalchemy import create_engine
+
+config   = load_config()
+pano_dir = config['data']['pano_dir']
+lstr_api = config['data']['lstr_api']
+ENGINE   = create_engine(config['data']['DB'])
+
 
 def lstr_pred_celery_version(fn):
     """[summary]
@@ -43,12 +56,27 @@ def lstr_pred_celery_version(fn):
 
 def lstr_pred(fn):
     fn = fn.split('/')[-1] if '/' in fn else fn
-    r = requests.get( url=f"http://192.168.135.34:5000/lstr?fn={fn}" )  
+    r = requests.get( url = f"{lstr_api}?fn={fn}" )  
 
     return r.json()['result']
 
 
-def draw_pred_lanes_on_img(pred_dict, out_path, dot=True, thickness=10, alpha=0.4, show_lane_num=True, debug_infos=None, root_folder = '/home/pcl/Data/minio_server/panos/'):
+def lstr_pred_by_pid(pid, _format='img'):
+    url = f"http://192.168.135.15:4000/pred_by_pid?format={_format}&pid={pid}"
+    print(url)
+    r = requests.get( url )  
+
+    return r
+
+
+def draw_pred_lanes_on_img(pred_dict, 
+                           out_path, 
+                           dot=True, 
+                           thickness=10, 
+                           alpha=0.4, 
+                           show_lane_num=True, 
+                           debug_infos=None, 
+                           root_folder = '/home/pcl/Data/minio_server/panos/'):
     """draw predited lanes on the input imgs"""
 
     assert 'name' in pred_dict and 'pred' in pred_dict, "dict not include 'file' or 'pred' "
@@ -102,16 +130,34 @@ def draw_pred_lanes_on_img(pred_dict, out_path, dot=True, thickness=10, alpha=0.
     if out_path is not None:
         cv2.imwrite(out_path, img)
 
-    return img
+    return cv2_2_Image(img)
+
+
+def lstr_pred_by_pid(pid):
+    gdf = gpd.read_postgis(f"""SELECT * FROM public.panos WHERE "PID" = '{pid}' """, geom_col='geometry', con=ENGINE)
+
+    if gdf.shape[0] == 0:
+        print('Check the pid is availabel or not.')
+        return 
+
+    lst = gdf.apply(lambda x: '_'.join([x.RID, f"{x.Order:02d}", x.PID, str(x.DIR)])+".jpg", axis=1).values.tolist()
+
+    # TODO the case that the number of matching records if bigger than 1
+    fn = lst[0]
+    res = lstr_pred(fn)
+    img = draw_pred_lanes_on_img(res, out_path=None, dot=True, debug_infos=[res['PID'], res['RID']],thickness=5, alpha=0.6)
+
+    return res, img
 
 
 if __name__ == '__main__':
+    # predict by the whole name
     fn = '7ea73e-734a-be1a-b9f4-2310d5_00_09005700011601081043548508N_179.jpg'
     res = lstr_pred(fn)
+    img = draw_pred_lanes_on_img(res, out_path=None, dot=True, debug_infos=[res['PID'], res['RID']],thickness=5, alpha=0.6)
 
-    # fn = '/Data/minio_server/panos/42fe8d-9555-1595-7843-afe68c_00_09005700121709091540114199Y_271.jpg'
-    # res = lstr_pred(fn)
-    draw_pred_lanes_on_img(res, './test.jpg', dot=True, debug_infos=[res['PID'], res['RID']],thickness=5, alpha=0.6)
-    
-    
-# %%
+    # predict by the pid
+    res, img = lstr_pred_by_pid('09005700121708201718089202S')
+    # img
+
+

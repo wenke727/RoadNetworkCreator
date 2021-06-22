@@ -483,7 +483,7 @@ def pred_osm_road_by_rid(road_id, roads_of_intrest, combineImgs=False, quality=1
     return fns
 
 
-def pred_analysis(BBOX):
+def pred_analysis(BBOX, df_memo=df_memo):
     # TODO 对数据进行分析 离散性计算; 2 去除无用的数据，即非道路数据
 
     pano_lst, df_memo = update_unpredict_panos(get_panos_imgs_by_bbox(BBOX), df_memo)

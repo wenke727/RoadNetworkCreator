@@ -121,8 +121,18 @@ def extract_connectors_from_panos_respond( DB_pano_base, DB_roads ):
     return connectors
 
 
+def save_to_geojson(gdf, fn):
+    if not isinstance(gdf, gpd.GeoDataFrame):
+        print('Check the format of the gdf.')
+        return False
+    
+    gdf.to_file(fn, driver='GeoJSON')
+    return True
+
+
 def update_lane_num_in_DB():
-    """update lane num in panos and roads
+    """
+    update lane num in panos and roads
     """
     from scipy import stats
     df_memo = pd.read_csv(config['data']['df_pred_memo'])
@@ -140,7 +150,7 @@ def update_lane_num_in_DB():
 
     DB_roads = DB_roads.set_index('RID')
     DB_roads = DB_roads.merge( tmp, left_index=True, right_index=True, how='left' )
-    DB_roads.loc[:, 'lane_num'] = DB_roads.lane_num_new
+    DB_roads.loc[:, 'lane_num'] = DB_roads.lane_num_new - 1
     DB_roads.drop(columns=['lane_num_new'], inplace=True)
     DB_roads.reset_index(inplace=True)
     
