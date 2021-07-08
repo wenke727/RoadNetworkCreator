@@ -5,10 +5,12 @@ import requests
 import numpy as np
 import time
 import geopandas as gpd
-
-sys.path.append("../utils")
-from img_process import cv2_2_Image
-from utils import load_config
+import io
+from PIL import Image\
+    
+sys.path.append("../")
+from utils.img_process import cv2_2_Image
+from utils.utils import load_config
 from sqlalchemy import create_engine
 
 config   = load_config()
@@ -66,6 +68,13 @@ def lstr_pred_by_pid(pid, _format='img'):
     print(url)
     r = requests.get( url )  
 
+    if _format == 'json':
+        return r.json()
+
+    if _format == 'img':
+        img = Image.open(io.BytesIO(r.content))
+        return img
+            
     return r
 
 
@@ -133,21 +142,7 @@ def draw_pred_lanes_on_img(pred_dict,
     return cv2_2_Image(img)
 
 
-def lstr_pred_by_pid(pid):
-    gdf = gpd.read_postgis(f"""SELECT * FROM public.panos WHERE "PID" = '{pid}' """, geom_col='geometry', con=ENGINE)
-
-    if gdf.shape[0] == 0:
-        print('Check the pid is availabel or not.')
-        return 
-
-    lst = gdf.apply(lambda x: '_'.join([x.RID, f"{x.Order:02d}", x.PID, str(x.DIR)])+".jpg", axis=1).values.tolist()
-
-    # TODO the case that the number of matching records if bigger than 1
-    fn = lst[0]
-    res = lstr_pred(fn)
-    img = draw_pred_lanes_on_img(res, out_path=None, dot=True, debug_infos=[res['PID'], res['RID']],thickness=5, alpha=0.6)
-
-    return res, img
+# %%
 
 
 if __name__ == '__main__':
@@ -157,7 +152,6 @@ if __name__ == '__main__':
     img = draw_pred_lanes_on_img(res, out_path=None, dot=True, debug_infos=[res['PID'], res['RID']],thickness=5, alpha=0.6)
 
     # predict by the pid
-    res, img = lstr_pred_by_pid('09005700121708201718089202S')
+    img = lstr_pred_by_pid('09005700121709031300156182S', 'img')
     # img
-
 

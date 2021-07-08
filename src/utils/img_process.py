@@ -12,15 +12,14 @@ import math
 # from db.db_process import load_from_DB
 sys.path.append(os.path.dirname(__file__))
 from geo_plot_helper import map_visualize
+from df_helper import query_df
 # from utils.spatialAnalysis import linestring_length
 # from utils.utils import load_config
+
 
 """ import road network from OSM """
 # import pickle
 # from road_network import OSM_road_network
-
-
-# DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
 
 # config = load_config()
 # pano_dir = config['data']['pano_dir']
@@ -37,12 +36,6 @@ from geo_plot_helper import map_visualize
 # df_edges.loc[:,'rid'] = df_edges.loc[:,'rid'].astype(np.int)
 
 
-
-
-def get_pano_id_by_rid(rid, DB_panos):
-    return DB_panos.query( f"RID=='{rid}' " )
-
-
 def plot_pano_and_its_view(pid, DB_panos, DB_roads, heading=None):
     """绘制pano所在的路段，位置以及视角
 
@@ -50,7 +43,7 @@ def plot_pano_and_its_view(pid, DB_panos, DB_roads, heading=None):
         pid ([type]): [description]
     """
     rid = DB_panos.query( f"PID=='{pid}' " ).RID.iloc[0]
-    pid_record = get_pano_id_by_rid(rid, DB_panos).query( f"PID == '{pid}'" )
+    pid_record = query_df(DB_panos, "RID", rid).query( f"PID == '{pid}'" )
     assert( len(pid_record) > 0 )
     pid_record = pid_record.iloc[0]
 

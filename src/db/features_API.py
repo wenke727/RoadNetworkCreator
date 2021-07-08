@@ -29,7 +29,7 @@ def create_polygon_by_bbox(bbox):
 
 
 def get_features(feature, bbox=None, geom=None, in_sys='wgs84'):
-    """creaet polygon by bbox(min_x, min_y, max_x, max_y)
+    """get road features in bbox(min_x, min_y, max_x, max_y)
 
     Args:
         feature: 'point' or 'line'
@@ -41,24 +41,28 @@ def get_features(feature, bbox=None, geom=None, in_sys='wgs84'):
     """
 
     assert in_sys == 'wgs84', "the coordination must be wgs84"
-    matching = {'point':'panos', 'line': 'roads' }
+    matching = {'point':'panos', 
+                'line': 'roads', 
+                'road': 'roads', 
+                'edge': 'osm_edge_shenzhen', 
+                'node': 'osm_node_shenzhen' }
     
-    assert not (bbox is None and geom is None), "bbox and geom cann't both be 0"
+    # assert not (bbox is None and geom is None), "bbox and geom cann't both be 0"
+    if geom is None and bbox is None:
+        res = gpd.read_postgis( f"""SELECT * FROM {matching[feature]} """, 
+                                geom_col='geometry', 
+                                con=ENGINE )
+        
+        return res
     
     if geom is None:
         geom = create_polygon_by_bbox( bbox=bbox )
         
-    sql = f"""
-        select * from {matching[feature]} 
-        where ST_Crosses( geometry, ST_GeomFromText('{geom}', 4326) ) or 
-                ST_Within( geometry, ST_GeomFromText('{geom}', 4326) )
-        """
-
+    sql = f"""SELECT * FROM {matching[feature]} 
+              WHERE ST_Crosses( geometry, ST_GeomFromText('{geom}', 4326) ) or 
+                    ST_Within( geometry, ST_GeomFromText('{geom}', 4326) )
+            """
     res = gpd.read_postgis( sql, geom_col='geometry', con=ENGINE )
-    
-    # res.to_file("./tmp.geojson", driver="GeoJSON")
-    # with open("./tmp.geojson") as f:
-    #     res = f.readlines()
         
     return res
 

@@ -4,7 +4,7 @@ import numpy as np
 import geopandas as gpd
 
 
-def osm_get(prefix, bbox   = '113.92348,22.57034,113.94372,22.5855'):
+def osm_get(prefix, bbox='113.92348,22.57034,113.94372,22.5855'):
     # bounding box to in geo coordinates west,south,east,north
     prefix = "osm" if prefix is None else prefix
     cmd = f"python /usr/share/sumo/tools/osmGet.py -b {bbox} -p {prefix}"

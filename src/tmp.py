@@ -5,10 +5,24 @@ traverse_panos_by_road_name_new('环观南路')
 
 traverse_panos_by_road_name_new('观乐路')
 
+def check_pid_duplicate_in_folder( folder = '/home/pcl/Data/minio_server/panos_data/Futian/益田路' ):
+    """Check whether there is any pid dulplicate in the folder
+    """ 
+    if not os.path.exists(folder): 
+        os.mkdir(folder)
+        return 
+    
+    lst = os.listdir(folder)
+    df = pd.DataFrame(lst, columns=['fn'])
+    df.loc[:, 'pid'] = df.fn.apply( lambda x: x.split("_")[-2] )
 
-
-# store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
-
+    df_count = pd.DataFrame(df.pid.value_counts())
+    num = df_count.query('pid>1').shape[0]
+    if num != 0:
+        print( f"total num: {df.shape[0]}, dulpicate num: {df_count.query('pid>1').shape[0]}" )
+    else:
+        print( f"NO duplication: {folder}" )
+    return
 
 
 # area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
@@ -79,3 +93,111 @@ for name in tqdm(unvisited_name[4:], desc=f'trasvers roads: '):
 
 
 # %%
+""" /home/pcl/traffic/RoadNetworkCreator_by_View/src/predict_lanes.py """
+
+# useless
+def get_heading_according_to_prev_road(rid):
+    """ 可能会有多个值返回，如：
+        rid = 'ba988a-7763-e9af-a5fb-dc8590'
+    """
+    # config   = load_config()
+    # ENGINE   = create_engine(config['data']['DB'])
+   
+    sql = f"""SELECT panos.* FROM 
+            (SELECT "RID", max("Order") as "Order" FROM
+                (
+                SELECT * FROM panos 
+                WHERE "RID" in
+                    (
+                        SELECT "RID" FROM panos 
+                        WHERE "PID" in 
+                        (
+                            SELECT prev_pano_id FROM connectors 
+                            WHERE "RID" = '{rid}'
+                        )
+                    )
+                ) a
+            group by "RID") b,
+            panos
+        WHERE panos."RID" = b."RID" and panos."Order" = b."Order"
+        """
+    res = pd.read_sql( sql, con=ENGINE )
+    res
+
+    return res.DIR.values.tolist()
+
+
+def calc_angle(item): 
+    """计算GPS坐标点的方位角 Azimuth 
+
+    Args:
+        item ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
+    angle=0
+    
+    x1, y1 = item.p0[0], item.p0[1]
+    x2, y2 = item.p1[0], item.p1[1]
+    
+    dy= y2-y1
+    dx= x2-x1
+    if dx==0 and dy>0:
+        angle = 0
+    if dx==0 and dy<0:
+        angle = 180
+    if dy==0 and dx>0:
+        angle = 90
+    if dy==0 and dx<0:
+        angle = 270
+    if dx>0 and dy>0:
+       angle = math.atan(dx/dy)*180/math.pi
+    elif dx<0 and dy>0:
+       angle = 360 + math.atan(dx/dy)*180/math.pi
+    elif dx<0 and dy<0:
+       angle = 180 + math.atan(dx/dy)*180/math.pi
+    elif dx>0 and dy<0:
+       angle = 180 + math.atan(dx/dy)*180/math.pi
+    return angle
+
+
+def calc_angle_for_df(df):
+    coords = df.geometry.apply(lambda x: x.coords[0]) 
+    df_new = pd.DataFrame()
+    df_new['p0'], df_new['p1'] = coords, coords.shift(-1)
+
+    df_new[:-1].apply(lambda x: calc_angle(x), axis=1)
+
+
+def draw_network_lanes( fn = "../lxd_predict.csv", save_img=None ):
+    """draw High-precision road network 
+
+    Args:
+        fn (str, optional): [description]. Defaults to "../lxd_predict.csv".
+        save_img ([type], optional): [description]. Defaults to None.
+
+    Returns:
+        [type]: [description]
+    """
+    from scipy import stats
+    colors = ['black', 'blue', 'orange', 'yellow', 'red']
+    widths = [0.75, 0.9, 1.2, 1.5, 2.5, 3]
+    
+    df = pd.read_csv(fn)
+    df.loc[:, "RID"] = df.name.apply( lambda x: x.split('/')[-1].split('_')[-4] )
+    df = df.groupby( 'RID' )[['lane_num']].agg( lambda x: stats.mode(x)[0][0] ).reset_index()
+    df.loc[:, 'lane_num'] = df.lane_num - 1
+
+    matching = DB_roads.merge( df, on = 'RID' )
+    max_lane_num = matching.lane_num.max()
+
+    fig, ax = map_visualize(matching, color='gray', scale=.05, figsize=(12, 12))
+    for i in range(max_lane_num):
+        matching.query(f'lane_num=={i+1}').plot(color = colors[i], linewidth = widths[i], label =f'{i+1} lanes', ax=ax)
+    plt.legend()
+    plt.close()
+    
+    if save_img is not None: plt.savefig(save_img, dpi =500)
+
+    return matching

@@ -1,3 +1,4 @@
+#%%
 import os, sys
 import geopandas as gpd
 import pandas as pd
@@ -12,6 +13,7 @@ config   = load_config()
 pano_dir = config['data']['pano_dir']
 ENGINE   = create_engine(config['data']['DB'])
 
+#%%
 
 def load_from_DB(new=False):
     """load data from DB
@@ -44,12 +46,20 @@ def load_from_DB(new=False):
     return DB_pano_base, DB_panos, DB_connectors, DB_roads
 
 
+def load_DB_panos():
+    return gpd.read_postgis( 'select * from panos', geom_col='geometry', con=ENGINE )
+
+
+def load_DB_roads():
+    return gpd.read_postgis( 'select * from roads', geom_col='geometry', con=ENGINE )
+   
+
+
 def store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads):
     """
     store road data to DB
     """
     config_local = {"con": ENGINE, 'if_exists':'replace'}
-
 
     DB_pano_base_bak = DB_pano_base.copy()
     try:
@@ -76,6 +86,22 @@ def store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads):
         print('Store_to_DB failed!')
         return False
 
+
+def save_to_db(df, name, config={"con": ENGINE, 'if_exists':'replace'}, verbose=True):
+    """Save the GeoDataFrame to the db
+
+    Args:
+        df (GeoDataFrame): The dataframe need to be stored in the database.
+        name (str): The table name.
+        db_config (dict, optional): [description]. Defaults to {"con": ENGINE, 'if_exists':'replace'}.
+    """
+    try:
+        df.to_postgis( name=name, **config)
+        return True
+    except:
+        print('save to db failed!')
+        return False
+    
 
 def DB_backup(DB_pano_base, DB_panos, DB_connectors, DB_roads):
     """backup the db in the PostgreSQL
@@ -169,6 +195,7 @@ def update_lane_num_in_DB():
     return    
 
 
+#%%
 if __name__ == '__main__':
     DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(new = False)
 
@@ -200,8 +227,9 @@ if __name__ == '__main__':
     
     extract_connectors_from_panos_respond( DB_pano_base, DB_roads )
 
-#%%
     points = gpd.read_file('./points_longhua.geojson')
     
     points.merge(tmp, on=['PID','DIR'] ).describe()
-    
+
+    # update lane num in panos and roads
+    # update_lane_num_in_DB()

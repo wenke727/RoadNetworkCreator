@@ -1,28 +1,24 @@
+#%%
 import os, sys
 import math
-import shutil
 import pandas as pd
 import geopandas as gpd
 
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-import cv2
 from road_network import OSM_road_network
 
-from db.features import get_features
+from db.features_API import get_features
 from db.db_process import load_from_DB
 # from road_matching import traverse_panos_by_rid
-from pano_img import get_pano_ids_by_rid, get_staticimage, pano_dir
+from pano_img import get_pano_ids_by_rid, pano_dir, PANO_log
 from utils.geo_plot_helper import map_visualize
-from pano_img import PANO_log
 from panos.panoAPI import get_panos
 
-# DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
-
-
+#%%
 
 def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
-    """obtain the panos in road[rid] 
+    """Obtain the panos in road[rid] by distributed crawleers.
 
     Args:
         rid (str): the id of road segements
@@ -42,63 +38,85 @@ def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
         
         if not all:
             if length > 3 and order % 3 != 1:
-                # print(order)
                 continue
 
+        # Fetch data asynchronously
         fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
-        if not os.path.exists(fn):
-            params = {'pid': pid, 'heading': heading, 'path': fn}
-            print('\t',params)
-            result = get_panos(params)
-            res.append(result)
-            pre_heading = heading
+        params = {'pid': pid, 'heading': heading, 'path': fn}
+        if os.path.exists(fn):
+            # print('\texist: ',params)
+            continue
+        result = get_panos(params)
+        res.append(result)
+        pre_heading = heading
         
     return res, df_pids
 
 
 def count_panos_num_by_area():
-    DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
-    area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs_with_Dapeng.geojson')
-    df = gpd.sjoin(left_df=area, right_df=DB_panos, op='contains').groupby('name')[['DIR']].count()
-    
-    return df
+    """Count panos number in several area.
+
+    Returns:
+        [type]: [description]
+    """
+    areas = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs_with_Dapeng.geojson')
+    res = {}
+    for index, district in tqdm(areas.iterrows()):
+        panos = get_features('point', geom = district.geometry)
+        res[district.name_cn] = panos.shape[0]
+        
+    # df = gpd.sjoin(left_df=area, right_df=DB_panos, op='contains').groupby('name')[['DIR']].count()
+
+    return res
 
 
-def get_panos_imgs_by_bbox():
-    folder = './images'
-    dst    = "~/Data/TuSimple/LSTR/lxd"
+def crawle_panos_in_district_area(district='南山区', key='name', fn='/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson'):
+    area = gpd.read_file(fn)
+    area.query( f"{key} =='{district}'", inplace=True )
+    if area.shape[0] == 0:
+        return None
     
-    # bbox=[113.92348,22.57034, 113.94372,22.5855] # 留仙洞区域
-    # bbox = [113.92131,22.52442, 113.95630,22.56855] # 科技园片区
-    # bbox=[113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
-    bbox = [114.04133,22.52903, 114.0645,22.55213] # 福田核心城区
-    
-    area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
-    area = area.query( "name =='龙岗区'" ).iloc[0].geometry
-    # area = area.query( "name ==''" )  
-    
+    area = area.iloc[0].geometry
     features = get_features('line', geom = area)
     panos = get_features('point', geom = area)
 
-    # features = get_features('line', bbox=bbox)
     res    = []
     count = 0
-    for rid in features.RID.unique():
+    for rid in tqdm(features.RID.unique(), district):
         info, _ = traverse_panos_by_rid(rid, panos, log=PANO_log, all=True)
         res += info
         count += 1
         # if count > 500: break
-    len(res)
+    print(len(res))
     
-
     return res
+
+def crawle_panos_in_city_level(fn='/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs_with_Dapeng.geojson'):
+    areas = gpd.read_file(fn)
+    for index, district in areas.iterrows():
+        crawle_panos_in_district_area(district.name_cn, 'name_cn', fn)
+    
+    return True
+    
 
 #%%
 
 if __name__ == '__main__':
-    # get_panos_imgs_by_bbox()
+    crawle_panos_in_city_level()
 
-    count_panos_num_by_area()    
-    
+    # crawle_panos_in_district_area('盐田区')
+
+    # count_panos_num_by_area()  
+      
+    {'福田区': 82795,
+    '罗湖区': 46297,
+    '南山区': 130939,
+    '盐田区': 23611,
+    '大鹏新区': 20622,
+    '龙华区': 98013,
+    '坪山区': 43334,
+    '龙岗区': 142577,
+    '宝安区': 163176,
+    '光明新区': 44404}
 
 

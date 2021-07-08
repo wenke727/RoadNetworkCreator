@@ -88,20 +88,8 @@ def map_visualize(df: gpd.GeoDataFrame,
 
 
 if __name__ == '__main__':
-    import geopandas as gpd
-    # df = gpd.read_file("/home/pcl/traffic/RoadNetworkCreator_by_View/input/edges_Nanshan.geojson")
-    df = gpd.read_file("/home/pcl/traffic/RoadNetworkCreator_by_View/src/tmp_石鼓路.geojson")
-    map_visualize(df)
-    
-    
-    
     from shapely.geometry import LineString
-    
     line = LineString([(113.932686, 22.583023), (113.932679, 22.583161), (113.932679, 22.583221), (113.932654, 22.583295)])
-    
     df = gpd.GeoDataFrame( [{"geometry": line}] )
-    
-    df.plot()
-    
     map_visualize(df)
     

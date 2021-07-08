@@ -6,10 +6,13 @@ data:
   df_matching   : /home/pcl/Data/minio_server/input/panos_matching.csv
   df_pred_memo  : /home/pcl/Data/minio_server/input/lane_shape_predict_memo.csv
   pano_dir      : /home/pcl/Data/minio_server/panos
-  pano_group_dir: /home/pcl/Data/minio_server/panos_data/Longgang
+  pano_group_dir: /home/pcl/Data/minio_server/tmp
   tmp           : /home/pcl/Data/minio_server/tmp
   input_dir     : /home/pcl/Data/minio_server/input
-  lstr_api      :  http://192.168.135.15:5000/lstr
+  lstr_api      : http://192.168.135.15:5000/lstr
+  lstr_api2     : http://192.168.135.15:4000
+  proxy_pool    : http://192.168.135.15:5555/random
+  
 osm:
   osm_highway_type_dict:
     motorway: motorway
@@ -58,3 +61,7 @@ train:
   threshold: 3
   regular_rate: 0.0001
   gpu_num: 1
+
+# BBOX = [113.92348,22.57034, 113.94372,22.5855] # 留仙洞区域
+# BBOX = [113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
+# BBOX = [114.04133,22.52903, 114.0645,22.55213] # 福田核心城区

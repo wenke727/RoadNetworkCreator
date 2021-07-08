@@ -7,7 +7,7 @@ import os
 
 # from PIL import Image
 import seaborn as sns
-from db.db_process import load_from_DB
+from db.db_process import load_from_DB, load_DB_roads
 from utils.log_helper import LogHelper
 from utils.utils import load_config
 import logbook
@@ -73,6 +73,16 @@ def get_staticimage(pid, heading, path, log_helper=None, sleep=True):
 
 
 def get_pano_ids_by_rid(rid, DB_panos, vis=False):
+    """Get panos ids in a road segement by its name.
+
+    Args:
+        rid (str): road id
+        DB_panos ([type]): [description]
+        vis (bool, optional): [description]. Defaults to False.
+
+    Returns:
+        [type]: [description]
+    """
     tmp = DB_panos.query( f" RID == '{rid}' " )
     if vis: map_visualize(tmp)
     
@@ -111,9 +121,12 @@ def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
     return res, df_pids
 
 
-
 def traverse_panos(df_panos):
-    # db_process.py
+    """Old API for traverse panos
+
+    Args:
+        df_panos ([type]): [description]
+    """
     import time, random
     from tqdm import tqdm
 
@@ -149,7 +162,7 @@ def query_static_imgs_by_road(name = '光侨路', pano_dir=pano_dir):
 if __name__ == "__main__":
     # rid = "7b3a55-bab4-becf-aea3-a9344d"
     # traverse_panos_by_rid(rid)
-    DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
+    DB_roads = load_DB_roads()
     
     rids = DB_roads.RID.unique()
 

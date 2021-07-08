@@ -3,7 +3,6 @@ import os
 import urllib
 import requests
 import json
-import threading
 import pandas as pd
 import geopandas as gpd
 import numpy as np 
@@ -23,18 +22,23 @@ from utils.log_helper import LogHelper, logbook
 from utils.utils import load_config
 from utils.coord.coord_transfer import *
 from utils.geo_plot_helper import map_visualize
-from db.features import get_features
+from db.features_API import get_features
 from utils.spatialAnalysis import create_polygon_by_bbox
 
 warnings.filterwarnings(action="ignore")
 
+import matplotlib
+matplotlib.use('Agg')
+# qt.qpa.screen: QXcbConnection: Could not connect to display localhost:11.0
+# Could not connect to any X display
+
 config    = load_config()
 pano_dir  = config['data']['pano_dir']
 input_dir = config['data']['input_dir']
+PROXY_POOL_URL = config['data']['proxy_pool']
 pano_API_log = LogHelper(log_dir=config['data']['log_dir'], log_name='panos_base.log').make_logger(level=logbook.INFO)
 DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
 
-PROXY_POOL_URL = 'http://192.168.135.34:5555/random'
 
 def get_proxy():
     try:
@@ -46,17 +50,17 @@ def get_proxy():
 
 
 def get_road_buffer(road_name, buffer=100):
-    """获取道路的边界线
+    """Obtain the buffer of a special road by name. The shape is queried by the Baidu searching API.  
 
     Args:
         road_name ([type]): [description]
-        buffer (int, optional): [description]. Defaults to 100.
+        buffer (int, optional): [description]. Defaults to 100 m.
 
     Returns:
         [type]: [description]
     """
     df_roads, dirs, ports = get_road_shp_by_search_API(road_name, None)
-    ports = [ [ float(i) for i in  p.split(',')] for p in ports]
+    ports = [[ float(i) for i in  p.split(',')] for p in ports]
     df_copy = df_roads.copy()
 
     df_roads.to_crs(epsg=2384, inplace=True)
@@ -125,8 +129,7 @@ def query_pano(x=None, y=None, pano_id=None, visualize=False, add_to_DB=True, ht
     # get panoid by coordination
     if pano_id is None:
         url       = f'https://mapsv0.bdimg.com/?qt=qsdata&x={x}&y={y}'
-        request   = urllib.request.Request(url=url, method='GET')
-        # request = requests.get( url, timeout=60, proxies={'http': get_proxy()}  )
+        request   = urllib.request.Request(url=url, method='GET') # TODO add proxy
         json_data = json.loads(urllib.request.urlopen(request).read())
     
         if 'content' in json_data:
@@ -277,7 +280,9 @@ def bfs_helper(x, y, area, visited=set(),pano_id=None, max_level=200, visualize=
             # auto save db
             if not auto_save_db: continue
             if status == 2: query_num += 1
-            if query_num < thres: continue
+            
+            if query_num < thres: 
+                continue
             store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
             pano_API_log.critical(f"auto save data to postgre database")
             query_num = 0
@@ -462,7 +467,19 @@ def get_unvisited_line(road_name='民治大道', buffer=3.75*2.5):
     return ans 
 
 
-def traverse_panos_by_road_name_new(road_name = '龙华人民路', auto_save_db=False, save_db=True, buffer=100, max_level=500):
+def traverse_panos_by_road_name_new(road_name = '龙华人民路', buffer=100, max_level=500, auto_save_db=False, save_db=True):
+    """traverse_panos_by_road_name, 相对更新在于识别道路的入口
+
+    Args:
+        road_name (str, optional): [description]. Defaults to '龙华人民路'.
+        auto_save_db (bool, optional): [description]. Defaults to False.
+        save_db (bool, optional): [description]. Defaults to True.
+        buffer (int, optional): [description]. Defaults to 100.
+        max_level (int, optional): [description]. Defaults to 500.
+
+    Returns:
+        [type]: [description]
+    """
     visited_pids, visited_coord = set(), set()
     level = 0;  count = 0
 
@@ -515,16 +532,18 @@ def traverse_panos_by_road_name_new(road_name = '龙华人民路', auto_save_db=
     
     return True
 
+
 #%%
 if __name__ == "__main__":
-    # for i in ['玉翠三街', '建辉路','布龙路', '油松路']:
-        # traverse_panos_by_road_name_new(i)
+    for i in ['玉翠三街', '建辉路','布龙路', '油松路']:
+        traverse_panos_by_road_name_new(i)
 
-    BBOX = [113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
-    area = create_polygon_by_bbox(BBOX)
-
-    # area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
-    # area = area.query( "name =='福田区'" ).iloc[0].geometry
+    """按照区域采集数据"""
+    # step 0: define study area
+    area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
+    area = area.query( "name =='盐田区'" ).iloc[0].geometry
+    # BBOX = [113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
+    # area = create_polygon_by_bbox(BBOX)
 
     # step 1: 读取龙华区的道路数据
     df_edges = gpd.read_file('/home/pcl/Data/minio_server/input/edges_Shenzhen.geojson')
@@ -561,7 +580,6 @@ if __name__ == "__main__":
         except:
             pass
     
-
     store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
     
 
@@ -602,5 +620,4 @@ if False:
 
         # if unvisited_line.shape[0] == 0: break
 
-# %%
 # %%

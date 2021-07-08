@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 
+## [1.0.05] - 2021-07-08
+
+Sort out and reorganize the project.
+
+### Added
+
+- `Osm_NET`
+  - [ ] 针对某些道路具有反向的情况，需要后边再细化了
+  - [ ] 筛选识别错误的车道情况
+
+- `MatchingPanos`
+  - [ ] 保存到文件中
+
 ## [1.0.04] - 2021-04-24
 
 ### Added
@@ -20,16 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   通过`pid`来预测车道情况，并绘制在图片上
 - `Osm_NET`
   - [x] get_roads_by_road_level, 获取某一道路等级的所有车道IDs
-  - [ ] 针对某些道路具有反向的情况，需要后边再细化了
-  - [ ] 筛选识别错误的车道情况
   - [x] orginize_roads_based_grade
   - [x] get_roads_by_road_level
 
 - `Sumo_Net`
   - [x] `plot_edge`
-
-- `MatchingPanos`
-  - [ ] 保存到文件中
 
 ### Changed
 
