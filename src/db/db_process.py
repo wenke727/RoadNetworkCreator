@@ -54,7 +54,6 @@ def load_DB_roads():
     return gpd.read_postgis( 'select * from roads', geom_col='geometry', con=ENGINE )
    
 
-
 def store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads):
     """
     store road data to DB

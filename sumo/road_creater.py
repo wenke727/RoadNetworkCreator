@@ -3,33 +3,26 @@ import os
 import sys
 import copy
 import pickle
-import datetime
+import warnings
 import numpy as np
 import pandas as pd
 from pandas.api.types import CategoricalDtype
 import geopandas as gpd
 import xml.etree.ElementTree as ET
-from pyproj import CRS, Transformer
 from shapely.geometry import Point, LineString
-import warnings
 from collections import deque
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-warnings.filterwarnings('ignore')
-
 sys.path.append("../src")
 from road_network import OSM_road_network
-# from road_matching import *
 from road_matching import _matching_panos_path_to_network, get_panos_of_road_and_indentify_lane_type_by_id, df_edges, DB_panos, DB_roads
 from utils.geo_plot_helper import map_visualize
-from utils.spatialAnalysis import relation_bet_point_and_line
 from utils.log_helper import LogHelper, logbook, log_type_for_sumo
-
-# from osm_helper import osm_get, osm_parser, add_coords_to_osm_node_hash, tranfer_to_sumo
 from xml_helper import indent, update_element_attrib, print_elem
-from interval_process import insert_intervals, merge_intervals
+from utils.interval_helper import insert_intervals, merge_intervals
 
+warnings.filterwarnings('ignore')
 
 g_log_helper = LogHelper(log_dir="/home/pcl/traffic/RoadNetworkCreator_by_View/log", log_name='sumo.log')
 SUMO_LOG = g_log_helper.make_logger(level=logbook.INFO)
@@ -44,503 +37,93 @@ matchingPanos = None
 
 #%%
 
-class OSM_Net():
-    def __init__(self, file='./osm_bbox.osm.bak.xml', save_fn='./osm_bbox.osm.xml', logger=None):
-        self.tree = ET.parse(file)
-        self.root = self.tree.getroot()
-        self.key_to_edge, self.key_to_node = self.osm_parser()
-        self.road_level_dict = self.orginize_roads_based_grade()
-        self.road_levels = self.road_level_dict.keys()
-        self.save_fn = save_fn
-        self.logger = logger
-        # TODO add self.pids_memo
-        self.pids_memo = {}
-        
-    def save(self, ):
-        indent(self.root)
-        self.tree.write(self.save_fn, encoding='utf-8')
-        return True
+from sumo_helper import Sumo_Net, OSM_Net
+
+# TODO move matching related function to `mathching_helper.py`
+# FIXME Fix the matching record problem, filter some unrelated record.
+# matching related
+class MatchingPanos():
+    def __init__(self, df_edges, cache_folder="../cache",*args):
+        self.memo = {}
+        self.memo_df = None
+        self.cache_folder = cache_folder
+        self.error_roads_lst = []
+        self.df_edges = df_edges
+        if self.cache_folder is not None:
+            self.load_memo()    
     
-    def orginize_roads_based_grade(self,):
-        road_level_dict = {}
-        for key, node in self.key_to_edge.items():
-            if 'highway' not in node: 
-                continue
-            
-            level = node['highway']
-            if level not in road_level_dict:
-                road_level_dict[level] = set([])
-            road_level_dict[level].add(key)
-
-        road_level_dict.keys()
+    def load_memo(self):
+        if not os.path.exists(f'{self.cache_folder}/matching_panos_memo.pkl'):
+            print(f"MatchingPanos loading {len(self.memo)} road from memo.pkl failed!")
+            return False
         
-        return road_level_dict
-
-    def get_roads_by_road_level(self, level):
-        if level not in self.road_level_dict:
-            print(f'There is no {level} roads in the dataset')
-            return []
-
-        return list(self.road_level_dict[level])
-    
-    def osm_parser(self):
-        wayHash, nodeHash = {}, {}
-        for element in self.root.findall('way'):
-            id = int(element.get('id'))
-            if id not in wayHash:
-                wayHash[id] = {}
-                wayHash[id]['elem'] = element
-                wayHash[id]['points'] = [ int(i.get('ref')) for i in element.findall('nd')]
-                
-                for i in element.findall('tag'):
-                    wayHash[id][i.get('k')] = i.get('v')
-                
-        for node in self.root.findall('node'):
-            id = int(node.get('id'))
-            if id in nodeHash: continue
-
-            info = {x.get('k'):x.get('v') for x in node.getchildren()} if node.getchildren() else {}
-            info['pid'] = id
-            info['xy'] = (float(node.get('lon')), float(node.get('lat')))
-            info['geometry'] = Point( *info['xy'] )
-            nodeHash[id] = info
-
-        return wayHash, nodeHash
-
-    def add_sumo_net_node_to_osm(self, sumo_net ):
-        size = len(self.key_to_node)
-        for i, item in sumo_net.node.to_crs(epsg=4326).iterrows():
-            if item.id in self.key_to_node:
-                continue
-
-            self.key_to_node[item.id]  = { 'pid': item.id, 
-                                            "xy": item.geometry.coords[0], 
-                                            "geometry": item.geometry, 
-                                            "coords": (float(item.x), float(item.y)) 
-                                          }
-        print(f"add_new_node_to_osm, node size {size} -> {len(self.key_to_node)}")
-        
+        self.memo = pickle.load( open(f'{self.cache_folder}/matching_panos_memo.pkl', 'rb') )
+        print(f"MatchingPanos loading {len(self.memo)} road from memo.pkl success!")
         return True
 
-    def cal_dis_two_point(self, pid0, pid1):
-        assert pid0 in self.key_to_node and pid1 in self.key_to_node, "check input"
-        if 'coords' in self.key_to_node[pid0]:
-            dis = np.linalg.norm(np.array(self.key_to_node[pid0]['coords']) - np.array(self.key_to_node[pid1]['coords']))
-        else:
-            from haversine import haversine, Unit
-            a = self.key_to_node[pid0]['geometry']
-            b = self.key_to_node[pid1]['geometry']
-            dis = haversine( a.coords[0][::-1], b.coords[0][::-1], unit=Unit.METERS )
-        
-        return dis
 
-    def add_coords_to_node(self, OSM_CRS=32649):
-        """add projection coordinations of each node to osm node hash
+    def save_memo(self):
+        pickle.dump(self.memo, open(f'{self.cache_folder}/matching_panos_memo.pkl', 'wb'))
+        return True
 
-        Args:
-            key_to_node (dict): osm node converted from osm xml file 
+
+    def convert_memo_to_df(self):
+        """Convert the memo record to dataframe
 
         Returns:
             [type]: [description]
         """
-        # assert OSM_CRS is not None, 'please process `parser_sumo_node_edge` to obtain `OSM_CRS`'
-        df = gpd.GeoDataFrame(self.key_to_node).T
-        df = df.set_crs(epsg=4326).to_crs(epsg=OSM_CRS)
-        df.loc[:, 'coords'] = df.geometry.apply(lambda x: [ round(i,2) for i in x.coords[0]])
+        return pd.DataFrame(mathing_pano.memo).T
 
-        for i in self.key_to_node.keys():
-            self.key_to_node[i]['coords'] = df.loc[i, 'coords']
-            
-        return True
 
-    def get_node_xy(self, node_id):
-        if node_id not in self.key_to_node:
-            return None
-        return self.key_to_node[node_id]['xy']
-        
-    def get_node_coords(self, node_id):
-        if node_id not in self.key_to_node:
-            return None
-        return self.key_to_node[node_id]['coords']
-            
-    def get_node_geometry(self, node_id):
-        if node_id not in self.key_to_node:
-            return None
-        return self.key_to_node[node_id]['geometry']
-
-    def get_pids_by_rid(self, rid, sumo_net, verbose=False, geo_plot=False):
-        """get pids of a special road in a sumo net file
+    def matching_lst(self, lst, vis=False, debug=False):
+        """Matching `rids` with OSM edges file.
 
         Args:
-            rid (int): the id of the road in the sumo net file
-            sumo_net (Sumo_Net): the class of sumo net
-
-        Returns:
-            [lst]: the pids in order
-        """
-        assert isinstance(rid, int), f"Check the rid {rid} is availabel"
-        if rid in self.pids_memo:
-            return self.pids_memo[rid]
-        # rid = 107586308， 存在和 `220885829`合并的情况； # 220885830 AddedRampe连续的情况
-        pids = self.key_to_edge[rid]['points'] if rid > 0 else self.key_to_edge[-rid]['points'][::-1]
-        # pids = osm_net.key_to_edge[rid]['points'] if rid > 0 else osm_net.key_to_edge[-rid]['points'][::-1]
-        road_sumo = sumo_net.get_edge_df_by_rid(rid)
-        
-        if self.logger and verbose:
-            attrs_show = ['id', 'from', 'to', 'numLanes', 'order']
-            self.logger.info(road_sumo[attrs_show])
-        
-        if road_sumo.id.str.contains('Add').sum() == 0: 
-            self.pids_memo[rid] = pids
-            return pids
-
-        insert_pids = {}
-        for node1, node2 in road_sumo[['from', 'to']].values:
-            node1 = int(node1) if node1.isdigit() else node1
-            node2 = int(node2) if node2.isdigit() else node2
-
-            if node1 not in pids:
-                if node1 not in insert_pids:
-                    insert_pids[node1] = {}
-                insert_pids[node1]['next'] = node2
-            
-            if node2 not in pids:
-                if node2 not in insert_pids:
-                    insert_pids[node2] = {}
-                insert_pids[node2]['prev'] = node1
-
-        queue = deque( [(key, 
-                         val['prev'] if 'prev' in val else '0', 
-                         val['next'] if 'next' in val else '-1'
-                         ) for key, val in insert_pids.items()] 
-                      )
-
-        while queue:
-            node, prev, nxt = queue.popleft()
-            prev = int(prev) if isinstance(prev, str) and prev.isdigit() else prev
-            if nxt == '-1':
-                nxt = pids[-1]
-            else:
-                nxt = int(nxt) if isinstance(nxt, str) and nxt.isdigit() else nxt
-
-            prev_index = pids.index(prev) if prev in pids else 0
-            nxt_index  = pids.index(nxt)  if nxt  in pids else len(pids) - 1
-
-            for idx in range(prev_index, nxt_index):
-                # print(f"intervals [{prev_index}, {nxt_index}], pids len {len(pids)}")
-                flag = relation_bet_point_and_line(osm_net.get_node_coords(node), 
-                                                   osm_net.get_node_coords(pids[idx]) + osm_net.get_node_coords(pids[idx+1]))
-                if 0 <= flag <= 1:
-                    break
-            
-            if flag <= 1:
-                pids.insert(idx+1, node)
-            else:
-                pids += [node]
-
-        if geo_plot:
-            lst = pids
-            gdf_nodes = gpd.GeoDataFrame(geometry=[osm_net.key_to_node[node]['geometry'] for node in lst])
-            gdf_nodes.reset_index(inplace=True)
-
-            fig, ax = map_visualize(gdf_nodes)
-            gdf_nodes.plot( column='index', legend=True, ax=ax )
-        
-        self.pids_memo[rid] = pids
-        
-        return pids
-
-    def get_edge_elem(self, rid):
-        return self.key_to_edge[rid]['elem']        
-
-    def rough_tune(self, lst, OSM_MATCHING_MEMO, save=True):
-        for rid in tqdm(lst, 'process rough tune: '):
-            if rid < 0: 
-                continue
-
-            print(f"\trough tune: {rid}, lane {OSM_MATCHING_MEMO[rid]['median'] if 'median' in OSM_MATCHING_MEMO[rid] else None } ")
-            if 'median' in OSM_MATCHING_MEMO[rid] and OSM_MATCHING_MEMO[rid]['median'] is not None:
-                update_element_attrib(self.get_edge_elem(rid), 'lanes', int(OSM_MATCHING_MEMO[rid]['median']))
-
-        if save:
-            self.save()
-
-
-class Sumo_Net(object):
-    def __init__(self, name, verbose=False, logger=None, *args):
-        global OSM_CRS
-        self.name = name
-        self.verbose = verbose
-        self.edge_file = f'./{name}/{name}.edg.xml'
-        self.edge_tree = ET.parse(self.edge_file)
-        self.edge_root = self.edge_tree.getroot()
-        # notice key in `key_to_edge` is string instead of long
-        self.key_to_edge = {}
-        
-        self.node_file = f'./{name}/{name}.nod.xml'
-        self.node_tree = ET.parse(self.node_file)
-        self.node_root = self.node_tree.getroot()
-        # notice key in `key_to_node` is string instead of long
-        self.key_to_node = {}
-        
-        self.crs = CRS(self.node_root.findall('location')[0].get('projParameter')).to_epsg()
-        OSM_CRS = self.crs
-        self.edge, self.node = self.parse_xml()
-        
-        self.rids = set(self.edge.rid.unique())
-
-    def parse_xml(self,):
-        def _id_parser(x):
-            flag = ""
-            if x[0] == "-":
-                flag = '-'
-                x = x[1:]
-            tmp =  int(x.split("#")[0].split('-')[0] if x.split("#")[0].split('-')[0] != '' else -1 )
-            
-            return -tmp if flag == '-' else tmp
-        
-        def _order_parser(x):
-            if "#" not in x:
-                return 0
-            tmp = x.split("#")[-1]
-            
-            return int(tmp.split('-')[0]) if '-' in tmp else int(tmp)    
-        
-        edges, nodes = [], []
-        for item in self.edge_tree.findall('edge'):
-            self.key_to_edge[item.get('id')] = item
-            
-            info = {key: item.get(key) for key in  item.keys()}
-            for p in item.findall('param'):
-                info[p.get('key')] = p.get('value')
-            edges.append(info)
-
-        edges = pd.DataFrame(edges)
-        edges.loc[:, 'rid'] = edges.id.apply( _id_parser )
-        edges.loc[:, 'order'] = edges.id.apply( _order_parser )        
-            
-        for item in self.node_root.findall('node'):
-            self.key_to_node[item.get('id')] = item
-            
-            nodes.append({key: item.get(key) for key in item.keys()})
-        nodes = gpd.GeoDataFrame(nodes)
-        nodes.loc[:, 'geometry'] = nodes.apply( lambda x: Point( float(x.x), float(x.y) ) ,axis=1 )
-        nodes.set_crs(epsg=self.crs, inplace=True)
-
-        return edges, nodes 
-
-    def save(self):
-        indent(self.edge_root)
-        indent(self.node_root)
-        self.node_tree.write(f'./{name}/{name}.nod.xml', encoding='utf-8')
-        self.edge_tree.write(f'./{name}/{name}.edg.xml', encoding='utf-8')  
-
-    def check_node(self, pid, key_to_node, add=True):
-        if str(pid) in self.key_to_node:
-            return True
-        
-        if add: 
-            self.add_node(pid, key_to_node)
-            return True
-        
-        return False    
-
-    def get_node(self, pid:str):
-        if str(pid) not in self.key_to_node:
-            return None
-        return self.key_to_node[str(pid)]
-    
-    def add_node(self, pid, key_to_node):
-        x, y = key_to_node[int(pid)]['coords']
-        info = {"id": str(pid), 'x': str(x), 'y': str(y)}
-        
-        node = ET.Element('node', info)
-        self.node_root.append(node)
-        self.key_to_node[str(pid)] = node
-        # TODO add record to dataframe
-        
-        if self.verbose: 
-            print(f'insert node into SUMO node xml file:\n\t{info}\n')
-
-        pass
-    
-    def remove_node(self, item):
-        pass
-
-    def parse_edge_elem(self, elem):
-        info = {key: elem.get(key) for key in elem.keys()}
-        idx = info.get('id')
-        
-        if "#" in idx:
-            if '-' not in idx[1:]:
-                rid, order = idx.split("#")
-            else:
-                rid, order = idx.split("#")
-                order, postfix = order.split("-")
-                info['postfix'] = postfix
-            info['rid'], info['order'] = int(rid), int(order)
-        else:
-            rid, order = idx, 0           
-        for p in elem.findall('param'):
-            info[p.get('key')] = p.get('value')        
-        
-        return info
-
-    def add_edge(self, elem):
-        """add `edge` element to tree
-        
-        Args:
-            elem (Element): edge element
-        """
-        if elem.get('from') != elem.get('to'):
-            self.edge_root.append(elem)
-            info = self.parse_edge_elem(elem)
-            
-            self.edge = self.edge.append(info, ignore_index=True)
-            self.key_to_edge[elem.get('id')] = elem
-
-        else:
-            # TODO
-            print("not add to sum_net", "*"*30)
-            print_elem(elem)
-            
-        pass
-
-    def remove_edge_by_rid(self, rid):
-        if rid not in self.key_to_edge:
-            return False
-        
-        edge_elem = self.key_to_edge[rid]
-        self.edge_root.remove( edge_elem )
-        del self.key_to_edge[rid]
-        self.edge.query(f" id!='{rid}' ", inplace=True)
-        
-        if self.verbose:
-            print("remove_edge_by_rid: ", rid)
-        
-        return True
-        
-    def update_edge_df(self, elem):
-        rid = elem.get('id')
-        size = self.edge.shape[0]
-        self.edge.query(f" id!='{rid}' ", inplace=True)
-        if self.verbose:
-            print("\ndrop origin record", rid, f"{size} -> {self.edge.shape[0]}")    
-        
-        info = self.parse_edge_elem(elem)
-        self.edge = self.edge.append(info, ignore_index=True)
-
-        if self.verbose:
-            print("update_edge_df success")
-        
-        return
-
-    def update_edge_elem_lane_num(self, id, lane_num):
-        if id not in self.key_to_edge:
-            return False
-        
-        lane_num = int(lane_num)
-        elem = self.key_to_edge[id]
-        elem.set('numLanes', str(lane_num))
-
-        cur_lane_elems = elem.findall('lane')
-        cur_lane_elems_num = len(cur_lane_elems)
-        print('cur_lane_elems_num', cur_lane_elems_num, lane_num)
-
-        if lane_num > cur_lane_elems_num:
-            for lane_id in range(cur_lane_elems_num, lane_num):
-                new_lane = copy.deepcopy(cur_lane_elems[-1])
-                new_lane.set('index', str(lane_id))
-                elem.append( new_lane )
-        elif lane_num < cur_lane_elems_num:
-            for lane_id in range(lane_num, cur_lane_elems_num):
-                elem.remove(cur_lane_elems[lane_id])    
-        print_elem(elem)
-        self.edge.loc[ self.edge.id == id, 'numLanes'] = int(lane_num)
-        print(self.edge.loc[self.edge.id == id, 'numLanes'])
-        
-        return True
-
-    def get_edge_df_by_rid(self, rid):
-        return self.edge.query(f"rid=={rid}").sort_values('order', ascending=True if rid > 0 else False)
-    
-    def get_edge_elem_by_id(self, rid, verbose=False):
-        if rid not in self.key_to_edge:
-            if verbose: print(f"{rid} not in sumo_net")
-            return None
-        
-        item = self.key_to_edge[rid]
-        if verbose: print_elem(item)
-        return item
-
-    def plot_edge(self, rid):
-        tmp = self.edge.query( f"rid == {rid}" )['shape']
-        tmp = tmp[~tmp.isna()]
-        road_shape = tmp.apply( lambda x:  LineString( np.array( [ coord.split(',') for coord in  x.split(" ")]).astype(np.float) ))
-        if road_shape.shape[0] == 0:
-            return False
-        
-        road_shape = gpd.GeoDataFrame(geometry = road_shape, crs = OSM_CRS).to_crs(epsg= 4326)
-        map_visualize(road_shape)
-        
-
-        return True
-
-
-class MatchingPanos():
-    def __init__(self, cache_folder="../cache", *args):
-        self.memo = {}
-        self.cache_folder = cache_folder
-        if self.cache_folder is not None:
-            self.load_memo()
-        self.error_roads_lst = []
-    
-    def load_memo(self):
-        if not os.path.exists(f'{self.cache_folder}/MatchingPanos_MEMO.pkl'):
-            print(f"MatchingPanos loading {len(self.memo)} road from memo.pkl failed!")
-            return False
-        
-        self.memo = pickle.load( open(f'{self.cache_folder}/MatchingPanos_MEMO.pkl', 'rb') )
-        print(f"MatchingPanos loading {len(self.memo)} road from memo.pkl success!")
-        return True
-    
-    def save_memo(self):
-        pickle.dump(self.memo, open(f'{self.cache_folder}/MatchingPanos_MEMO.pkl', 'wb'))
-        return True
-
-    def add_lst(self, lst, vis=False, debug=False):
-        """[summary]
-
-        Args:
-            lst ([type]): [description]
+            lst (list): The list that need to be matching.
             df_edges ([type]): [description]
             vis (bool, optional): [description]. Defaults to False.
             debug (bool, optional): [description]. save imgs to folder `.cache`.
         """
         for i in tqdm(lst, 'process road matching: '):
-            self.add(i, vis, debug)
+            self.matching(i, vis, debug)
 
         return
+
     
-    def add(self, i, vis=False, debug=False):
+    def matching(self, rid, vis=False, debug=False):
+        """Matching `rid` with OSM edges file.
+
+        Args:
+            i ([type]): [description]
+            vis (bool, optional): [description]. Defaults to False.
+            debug (bool, optional): [description]. Defaults to False.
+
+        Returns:
+            [type]: [description]
+        """
+        i = rid
         if i in self.memo:
             return
         
         self.memo[i] = self.memo.get(i, {})
-        df = get_and_filter_panos_by_osm_rid(i, vis=vis, debug=debug, outlier_filter=True, verbose=False)
+        df, _ = get_and_filter_panos_by_osm_rid(i, self.df_edges, vis=vis, debug=debug, outlier_filter=True, verbose=False)
         if df is None:
             self.error_roads_lst.append(i)
             self.memo[i]['df'] = None
             self.memo[i]['median'] = None
+            self.memo[i]['mode'] = None
             
             return False
         
         self.memo[i]['df'] = df
         self.memo[i]['median'] = int(df.lane_num.median())
+        self.memo[i]['mode'] = int(df.lane_num.mode()[0])
         
         return True
+
     
-    def gdf_to_file_by_rid(self, rid, folder=None):
+    def save_rid_matching_df_to_file(self, rid, folder=None):
         """save the mathching record in the file
 
         Args:
@@ -572,8 +155,7 @@ class MatchingPanos():
         Returns:
             [type]: [description]
         """
-        # matchingPanos.gdf_to_file_by_rid(name_to_id['科苑北路'], './')
-        df = self.gdf_to_file_by_rid(rid)
+        df = self.save_rid_matching_df_to_file(rid)
         if df is None:
             print(f"plot rid matching error, for the geodataframe {rid} is None")
         
@@ -587,8 +169,7 @@ class MatchingPanos():
     def size(self):
         return len(self.memo)
 
-    
-# sumo_net build-in functions 
+
 def _get_revert_df_edges(road_id, df_edges, vis=False):
     """create the revert direction edge of rid in OSM file
 
@@ -622,17 +203,17 @@ def _get_revert_df_edges(road_id, df_edges, vis=False):
 
 
 def _panos_filter(panos, trim_nums=1):
-    """Filter panos
+    """Filter panos by:
     1. trim port
     1. lane_detection continues
     1. abs(lane_num - @median) < 2
 
     Args:
-        panos ([type]): [description]
+        panos (df): The origin df.
         trim_nums (int, optional): the trim length of the begining adn end points. Defaults to 1.
 
     Returns:
-        [pd.DataFrame]: the filtered panos
+        [pd.df]: the filtered panos
     """
     if panos.shape[0] == 2 and panos.lane_num.nunique() == 1:
         return panos
@@ -654,7 +235,7 @@ def _panos_filter(panos, trim_nums=1):
     return panos
 
 
-def get_and_filter_panos_by_osm_rid(road_id = 243387686, offset=1, vis=False, debug=False, outlier_filter=True, mul_factor=2, verbose=True):
+def get_and_filter_panos_by_osm_rid(road_id, df_edges, offset=1, vis=False, debug=False, outlier_filter=True, mul_factor=2, verbose=False):
     """Get the panos by OSM rid, and then filtered by some conditions.
 
     Args:
@@ -663,13 +244,14 @@ def get_and_filter_panos_by_osm_rid(road_id = 243387686, offset=1, vis=False, de
         offset (int, optional): [the attribute `lane_num` is the real lane num or the real lane line num. If `lane_num` represent line num, then offset is 1. Other vise, the offset is 0 ]. Defaults to 1.
 
     Returns:
-        [type]: [description]
+        matchingPano [dataframe]: [description]
+        fig [plt.figure]: Figure
     """
+    # step 1: matching panos
     atts = ['index', 'RID', 'Name', 'geometry', 'lane_num', 'frechet_dis', 'angel', 'osm_road_id', 'osm_road_index', 'related_pos', 'link']
     try:
         if road_id > 0:
             matching = get_panos_of_road_and_indentify_lane_type_by_id(road_id, df_edges, False) 
-            matching.query('lane_num > 0', inplace=True)
             matching = matching[atts].merge(df_edges[['s', 'e']], left_on='osm_road_index', right_index=True)
             road_name = df_edges.query(f'rid=={road_id}').name.unique()[0]
         else:
@@ -681,21 +263,26 @@ def get_and_filter_panos_by_osm_rid(road_id = 243387686, offset=1, vis=False, de
         
         if matching.shape[0] == 0:
             print( f"{sys._getframe(0).f_code.co_name} {road_id}, no matching recods" )
-            return None
+            return None, None
     except:
         print( f"{sys._getframe(0).f_code.co_name} {road_id}, process error" )
-        return None
+        return None, None
     
+    rids = []
+    for i in  matching.RID.values:
+        if i in rids:
+            continue
+        rids.append(i)
+    rids_ordered = CategoricalDtype(rids, ordered=True)
+
     # filter outlier -> 计算路段的统计属性
-    rids = matching.RID.unique().tolist()
     points = DB_panos.query( f"RID in {rids}" ).dropna()
-    
-    rid_order = CategoricalDtype(matching.RID, ordered=True)
     tmp = points.groupby('RID').apply( lambda x: _panos_filter(x) ).drop(columns='RID').reset_index()
     
     if outlier_filter and tmp.shape[0] != 0:
         if verbose: 
             origin_size = tmp.shape[0]
+            
         _mean, _std = tmp.lane_num.mean(), tmp.lane_num.std()
         if not np.isnan(_mean) and not np.isnan(_std):
             iterverl = (_mean-mul_factor*_std, _mean+mul_factor*_std)
@@ -705,34 +292,39 @@ def get_and_filter_panos_by_osm_rid(road_id = 243387686, offset=1, vis=False, de
           
     if tmp.shape[0] == 0:
         print( f"{sys._getframe(0).f_code.co_name} {road_id}, no matching records after filter algorithm" )
-        return None
-     
-    tmp.loc[:, 'RID'] = tmp['RID'].astype(rid_order)
+        return None, None
+    
+    # reorder the panos
+    tmp.loc[:, 'RID'] = tmp['RID'].astype(rids_ordered)
     tmp.sort_values(by=['RID', 'Order'], inplace=True)
     tmp.reset_index(drop=True, inplace=True)
 
     if offset:
         tmp.loc[:, 'lane_num'] = tmp.loc[:, 'lane_num'] - 1
         
-    if vis :
+    if vis:
         fig, ax = map_visualize(tmp, scale=.1, color='gray', figsize=(15, 15))
+        df_edges.query(f'rid =={road_id}').plot(ax=ax, linestyle='--', color='black', label='OSM road', alpha=.5)
         tmp.loc[:, 'lane_num_str'] = tmp.loc[:, 'lane_num'].astype(str)
         tmp.plot(ax=ax, column='lane_num_str', legend=True)
         
         _mean, _std = tmp.lane_num.mean(), tmp.lane_num.std()
         iterverl = (round(_mean-mul_factor*_std, 1), round(_mean+mul_factor*_std,1) )
-        
         ax.set_title(f"{road_id}, {road_name}, mean {_mean:.1f}, std {_std:.1f}, {iterverl}", fontsize=18)
         if debug:
             try:
                 fig.savefig(f'../cache/matching_records/{road_name}_{road_id}.jpg', dpi=300)
             except:
                 print(road_name, road_id)
+        plt.tight_layout(pad=0.1)
         plt.close()
         
-    return tmp
+        return tmp, fig
+        
+    return tmp, None
 
 
+# road creating related
 def get_road_changed_section(rid, vis=True, dis_thres=20, mul_factor = 2):
     """获取变化的截面
 
@@ -975,10 +567,6 @@ def lane_change_process(item, new_start, new_end, dis_thres, pids, lane_num_new,
     origin_edge = sumo_net.get_edge_elem_by_id(item.id)
     elem_lst = [origin_edge] + [copy.deepcopy(origin_edge) for _ in range(len(new_intervals)-1)]
     
-    # print(elem_lst)
-    # for elem in elem_lst:
-    #     print_elem(elem)
-        
     lane_change_process_for_node(elem_lst, pids, new_intervals, id_lst, shape_lst)
 
     if verbose:
@@ -1087,7 +675,7 @@ def _post_process_fine_tune(name, osm_file, verbose=False, SUMO_HOME="/usr/share
     """
 
     flag = False
-    sumo_net.save()
+    sumo_net.save(name)
     
     post_precess = f"cd ./{name}; ll; cp ../start_with_net.sh ./; sh start_with_net.sh "
     res = os.popen(post_precess).read()
@@ -1100,224 +688,26 @@ def _post_process_fine_tune(name, osm_file, verbose=False, SUMO_HOME="/usr/share
     return flag
 
 
-
-get_and_filter_panos_by_osm_rid(557222391, vis=True)
-# rid = 231901936 
-# # del OSM_MATCHING_MEMO[rid]
-# matchingPanos.add(rid)
-
-# modify_road_shape(rid, SUMO_LOG)
-
-#%%
-# 初始化
-
-# rids_debug = [570468184, 633620767, 183402036, 107586308] # 深南大道及其辅道
-# rids_debug = [ 208128058, 529249851, -529249851, 208128051,208128050, 208128048,489105647, 231901941,778460597] # -208128058
-rids_debug = None # 深南大道及其辅道
-
-SUMO_HOME = "/usr/share/sumo"
-osm_file = './osm_bbox.osm.xml'
-name = 'osm'
-road_types_lst = ['trunk', 'primary', 'secondary']
-
-file = open(f"../log/sumo-{datetime.datetime.now().strftime('%Y-%m-%d')}.log", 'w').close()
-
-if matchingPanos is None:
-    matchingPanos = MatchingPanos()
-    # matchingPanos = MatchingPanos(None)
-    # matchingPanos.add_lst(RID_set, df_edges, debug=True)
-    # matchingPanos.save_memo()
-
+# --------
 osm_net = OSM_Net(file='./osm_bbox.osm.bak.xml', save_fn='./osm_bbox.osm.xml', logger=SUMO_LOG)
+mathing_pano = MatchingPanos(df_edges)
 
-def _get_rid_by_road_type(road_levles:list):
-    """Get rids by road type: 'primary', 'secondary'
-    """
-    rids = [] 
-    for level in road_levles:
-        rids += osm_net.get_roads_by_road_level(level)
-    
-    return rids
+road_types_lst = ['primary'] # 'trunk', 'secondary'
+rids = osm_net.get_rids_by_road_levels(road_types_lst)
 
-rids = _get_rid_by_road_type(road_types_lst)
 
-matchingPanos.add_lst(rids if rids_debug is None else rids_debug, df_edges, debug=True)
-OSM_MATCHING_MEMO = matchingPanos.memo
-
-if rids_debug is None:
-    osm_net.rough_tune(rids, OSM_MATCHING_MEMO, save=True)
-else:
-    osm_net.rough_tune(rids_debug if isinstance(rids_debug, list) else [rids_debug], OSM_MATCHING_MEMO, save=True)
-
-assert _pre_process_fine_tune(name, osm_file, False), 'check `_pre_process_fine_tune` functions'
-
-sumo_net = Sumo_Net('osm', logger=SUMO_LOG)
-osm_net.add_sumo_net_node_to_osm(sumo_net)
-osm_net.add_coords_to_node(OSM_CRS)
-
-"""微调"""
-if rids_debug is None:
-    for rid in rids:
-        try:
-            modify_road_shape(rid, SUMO_LOG)
-        except:
-            print(f"rid: {rid} error!" )
-            SUMO_LOG.error(f"rid: {rid} error!" )
-            break
-else:
-    if isinstance(rids_debug, list):
-        [ modify_road_shape(i, SUMO_LOG) for i in rids_debug ]
-    else:
-        modify_road_shape(rids_debug, SUMO_LOG)
-
-assert _post_process_fine_tune(name, osm_file, False), 'check `_post_process_fine_tune` functions'
+# osm_rid = 208128052 # 529249851
+# mathing_pano.add(osm_rid)
+mathing_pano.matching_lst(rids, vis=True, debug=True)
 
 
 #%%
-
-
-# process road matching:  59%|█████▊    | 72/123 [00:07<00:26,  1.94it/s] 572963459, no matching records after filter algorithm
-# process road matching:  60%|██████    | 74/123 [00:14<01:37,  2.00s/it] 96327302, no matching records after filter algorithm
-# process road matching:  65%|██████▌   | 80/123 [01:00<04:28,  6.26s/it] 488273278, no matching records after filter algorithm
-# process road matching:  66%|██████▌   | 81/123 [01:05<04:07,  5.90s/it] 911272994, process error
-# process road matching:  80%|███████▉  | 98/123 [02:21<01:37,  3.91s/it] 231787203, no matching records after filter algorithm
-# process road matching:  82%|████████▏ | 101/123 [02:32<01:20,  3.65s/it] 533679822, no matching records after filter algorithm
-# process road matching:  85%|████████▍ | 104/123 [02:45<01:11,  3.76s/it] 623050456, process error
-# process road matching:  85%|████████▌ | 105/123 [02:47<00:55,  3.10s/it] 623050457, process error
-# process road matching:  89%|████████▊ | 109/123 [03:06<00:58,  4.15s/it] 636236894, no matching records after filter algorithm
-# process road matching:  91%|█████████ | 112/123 [03:19<00:43,  3.96s/it] 533894248, no matching records after filter algorithm
-# process road matching:  92%|█████████▏| 113/123 [03:22<00:37,  3.75s/it] 833749485, process error
-
-rid = 96327302
-del OSM_MATCHING_MEMO[rid]
-matchingPanos.add(rid)
-get_and_filter_panos_by_osm_rid(rid, vis=True)
-
-        
-# %%
-"""
-    DONE:
-    572963461 -> 匹配的elem_lst is [None] 
-    107586308
-    TODO
-    911272994 # if panos is None or panos.shape[0] == 0: 
-    25529503 # 2号道路，神奇失踪正在溯源
-"""
-rid = 572963460
-sumo_net.plot_edge(rid)
-sumo_net.get_edge_df_by_rid(rid)
-
-osm_net.get_pids_by_rid(rid, sumo_net)
-
-modify_road_shape(rid, SUMO_LOG)
-
-# panos matching
-panos = get_and_filter_panos_by_osm_rid( rid, vis=True, debug=False )
-
-
-
-
-# %%
-# ! 针对panos匹配的情况进行异常值处理，从图的连通性角度出发
-panos
-
-name_to_id = {'高新中四道': 529249851,
-              '科技中二路': 208128052,
-              '科苑北路': 231901939,
-              '高新中二道': 208128050,
-              '科技中三路': 208128048,
-              '科技中一路': 278660698,
-              '高新中一道': 778460597
-              }
-
-# %%
-
-# FIXME rid = 107586308， 存在和 `220885829`合并的情况
-
-# bug 线段延申的情况
-# rid = 231405165
-# modify_road_shape(rid, SUMO_LOG)
-
-# bug 没有预测错误的项目
-# rid = 636237018
-# modify_road_shape(rid, SUMO_LOG)
-
-
-# 45569111 生成错误, 因为线段被裁剪头部
-# rid = 45569111
-# modify_road_shape(rid, SUMO_LOG)
-
-# 修改匹配算法，剪枝
-rid = 107586308
-
-#%%
-#! 获取sumo_net的 拓扑 关系
-rid = '107586308#7-AddedOnRampEdge'
-
-df_edge = sumo_net.edge
-
-index = df_edge.query(f"id=='{rid}' ").index[0]
-
-road = df_edge.loc[index]
-end_point = road['to'] 
-rid = road['rid']
-
-# %%
-pre_ramps = df_edge[ (df_edge['to'] == road['from']) & (df_edge['rid'] != road['rid']) ]
-pre_ramps_numLanes = pre_ramps.numLanes.astype(int).sum()
-
-nxt_ramps = df_edge[ (df_edge['from'] == road['to']) & (df_edge['rid'] != road['rid']) ]
-nxt_ramps_numLanes = nxt_ramps.numLanes.astype(int).sum()
-
-lane_num = int(road['numLanes']) - max(pre_ramps_numLanes, nxt_ramps_numLanes)
-
-sumo_net.update_edge_elem_lane_num(rid, lane_num)
-
-# %%
-
-# rid = '107586308#7'
-
-def update_laneNum_for_AddRampEdge(rid, verbose=True):
-    df_edge = sumo_net.edge
-
-    index = df_edge.query(f"id=='{rid}' ").index[0]
-    road = df_edge.loc[index]
-    # rid = road['rid']
-
-    if verbose:
-        print("\n\n", road['id'], road['numLanes'])
-
-    pre_ramps = df_edge[ (df_edge['to'] == road['from']) & (df_edge['rid'] != road['rid']) & (df_edge['type'] != road['type']) ]
-    pre_ramps_numLanes = pre_ramps.numLanes.astype(int).sum()
-
-    nxt_ramps = df_edge[ (df_edge['from'] == road['to']) & (df_edge['rid'] != road['rid']) & (df_edge['type'] != road['type']) ]
-    nxt_ramps_numLanes = nxt_ramps.numLanes.astype(int).sum()
-
-    tmp_lane = int(road['numLanes']) - max(pre_ramps_numLanes, nxt_ramps_numLanes)
-    lane_num = tmp_lane if tmp_lane > 0 else int(road['numLanes'])
-
-    status = sumo_net.update_edge_elem_lane_num(rid, lane_num)
-
-    if status is False:
-        print(f"update_laneNum_for_AddRampEdge {rid} failed")
-    else:
-        print(f"update_laneNum_for_AddRampEdge {rid} success")
+if __name__ == '__main__':
+    """ 预测指定 rid 的道路, 并输出匹配情况和照片 """
+    osm_rid = 208128052 # 529249851
+    mathcing_res, fig = get_and_filter_panos_by_osm_rid(osm_rid, df_edges, vis=True, debug=True)
+    fig
     
-
-    return 
-    
-
-# update_laneNum_for_AddRampEdge(rid='107586308#7-AddedOnRampEdge')    
-
-
-# %%
-add_ramps_edges = sumo_net.edge[sumo_net.edge['id'].str.contains('107586308') & sumo_net.edge['id'].str.contains('RampEdge')]['id'].values
-
-# %%
-for edge in add_ramps_edges:
-    update_laneNum_for_AddRampEdge(edge)
-
-assert _post_process_fine_tune(name, osm_file, False), 'check `_post_process_fine_tune` functions'
 
 
 # %%

@@ -28,7 +28,6 @@ Cartopy==0.18.0
 celery==5.0.5
 certifi==2020.4.5.1
 chardet==3.0.4
-CityFlow @ file:///home/pcl/C_projects/CityFlow
 click==7.1.1
 click-didyoumean==0.0.3
 click-plugins==1.1.1
@@ -86,7 +85,6 @@ httplib2==0.17.3
 idna==2.9
 idna-ssl==1.1.0
 imageio==2.9.0
-imageio-ffmpeg @ file:///home/pcl/traffic/Advance_LaneFinding/imageio_ffmpeg-0.4.2-py3-none-manylinux2010_x86_64.whl
 importlib-metadata==1.6.0
 ipykernel==5.2.0
 ipython==7.13.0
@@ -214,7 +212,6 @@ Rtree==0.9.4
 s3transfer==0.3.3
 sacremoses==0.0.43
 schedule==0.6.0
-scikit-image @ file:///home/pcl/traffic/Advance_LaneFinding/scikit_image-0.17.2-cp36-cp36m-manylinux1_x86_64.whl
 scikit-learn==0.22.2.post1
 scipy==1.4.1
 seaborn==0.10.0
@@ -242,7 +239,6 @@ tb-nightly==1.14.0a20190603
 tensorboard==2.3.0
 tensorboard-plugin-wit==1.7.0
 tensorflow-estimator==2.3.0
-tensorflow-gpu @ file:///home/pcl/Data/MachineLearning/install/tensorflow_gpu-2.3.0-cp36-cp36m-manylinux2010_x86_64.whl
 termcolor==1.1.0
 terminado==0.8.3
 testpath==0.4.4
@@ -251,8 +247,6 @@ tf-estimator-nightly==1.14.0.dev2019060501
 tifffile==2020.9.3
 tokenizers==0.5.2
 toml==0.10.1
-torch @ file:///home/pcl/Data/MachineLearning/install/torch-1.6.0-cp36-cp36m-manylinux1_x86_64.whl
-torchvision @ file:///home/pcl/Data/MachineLearning/install/torchvision-0.7.0-cp36-cp36m-manylinux1_x86_64.whl
 tornado==6.0.4
 tqdm==4.45.0
 traci==1.8.0
