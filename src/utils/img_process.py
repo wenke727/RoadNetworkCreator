@@ -23,17 +23,7 @@ from df_helper import query_df
 
 # config = load_config()
 # pano_dir = config['data']['pano_dir']
-# pano_group_dir = config['data']['pano_group_dir']
 # DF_matching = pd.read_csv( config['data']['df_matching'])
-
-
-# linestring_length(DB_roads, True)
-
-# osm_shenzhen = pickle.load(open("../input/road_network_osm_shenzhen.pkl", 'rb') )
-# df_nodes = osm_shenzhen.nodes
-# df_edges = osm_shenzhen.edges
-# df_edges.reset_index(drop=True, inplace=True)
-# df_edges.loc[:,'rid'] = df_edges.loc[:,'rid'].astype(np.int)
 
 
 def plot_pano_and_its_view(pid, DB_panos, DB_roads, heading=None):

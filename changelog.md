@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 
+## [1.1.01] - 2021-08-10
+
+### Added
+
+- Add `DigraphOSM` to get and preporcess OSM data, and save it to the DB.
+
 ## [1.0.05] - 2021-07-08
 
 Sort out and reorganize the project.
@@ -19,11 +25,11 @@ Sort out and reorganize the project.
 ### Added
 
 - `Osm_NET`
-  - [ ] 针对某些道路具有反向的情况，需要后边再细化了
-  - [ ] 筛选识别错误的车道情况
+  - [x] 针对某些道路具有反向的情况，需要后边再细化了
+  - [x] 筛选识别错误的车道情况
 
 - `MatchingPanos`
-  - [ ] 保存到文件中
+  - [x] 保存到文件中
 
 ## [1.0.04] - 2021-04-24
 

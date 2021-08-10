@@ -35,19 +35,10 @@ matplotlib.use('Agg')
 config    = load_config()
 pano_dir  = config['data']['pano_dir']
 input_dir = config['data']['input_dir']
-PROXY_POOL_URL = config['data']['proxy_pool']
 pano_API_log = LogHelper(log_dir=config['data']['log_dir'], log_name='panos_base.log').make_logger(level=logbook.INFO)
 DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
 
-
-def get_proxy():
-    try:
-        response = requests.get(PROXY_POOL_URL)
-        if response.status_code == 200:
-            return response.text
-    except ConnectionError:
-        return None
-
+#%%
 
 def get_road_buffer(road_name, buffer=100):
     """Obtain the buffer of a special road by name. The shape is queried by the Baidu searching API.  
@@ -150,14 +141,17 @@ def query_pano(x=None, y=None, pano_id=None, visualize=False, add_to_DB=True, ht
         
         if panos.iloc[-1].PID == pano_id:
             return 1, pano_respond, panos, nxt
+        
         pano_id = panos.iloc[-1].PID
 
     def _get_pano( pano_id, sleep=True ):
         url = f"https://mapsv0.bdimg.com/?qt=sdata&sid={pano_id}"
         request = urllib.request.Request(url, method='GET')
         pano_respond = json.loads(urllib.request.urlopen(request).read())
-        if sleep: time.sleep( random.uniform(0.5, 1.5)*2 )
-        if http_log:  pano_API_log.info( f"\tpano id: {pano_id}, {url}")
+        if sleep: 
+            time.sleep( random.uniform(0.5, 1.5)*2 )
+        if http_log:  
+            pano_API_log.info( f"\tpano id: {pano_id}, {url}")
 
         return pano_respond['content'][0]
 
@@ -189,7 +183,9 @@ def pano_respond_parser(respond, add_to_DB, visualize, console_log=False, *args,
     """
     offset_factor = 2
 
-    for att in ["X", "Y"]: respond[att] = float(respond[att])
+    for att in ["X", "Y"]: 
+        respond[att] = float(respond[att])
+    
     respond['geometry'] = Point(bd_mc_to_wgs( respond['X'], respond['Y'], factor=100))
     roads = pd.DataFrame(respond['Roads']).rename({'ID': "RID"}, axis=1) 
 
@@ -241,8 +237,11 @@ def pano_respond_parser(respond, add_to_DB, visualize, console_log=False, *args,
         ax.legend(title="Legend", ncol=1, shadow=True)
         title = ax.set_title(f"{cur_road.RID} / {cur_road.PID_start}")
 
-    if console_log: print(f"\tnxt_coords: { [x[:2] if x[2] is None else x[2] for x in nxt_coords  ]  }")
-    if add_to_DB: add_pano_respond_to_DB(respond, panos, links, cur_road)
+    if console_log: 
+        print(f"\tnxt_coords: { [x[:2] if x[2] is None else x[2] for x in nxt_coords  ]  }")
+    
+    if add_to_DB: 
+        add_pano_respond_to_DB(respond, panos, links, cur_road)
 
     return panos, nxt_coords
 
@@ -531,6 +530,16 @@ def traverse_panos_by_road_name_new(road_name = '龙华人民路', buffer=100, m
         store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
     
     return True
+
+
+#%%
+# if __name__ == "__main__":
+
+status, respond, panos, nxt = query_pano(pano_id='09005700121708211337395902S')
+map_visualize(panos, scale=3)
+
+status, respond, panos, nxt = query_pano(pano_id='09005700121708211349194732S')
+map_visualize(panos, scale=3)
 
 
 #%%

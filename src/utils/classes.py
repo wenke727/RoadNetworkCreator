@@ -51,32 +51,46 @@ class Node:
         return True
 
 class Digraph:
-    def __init__(self, edges=None, *args, **kwargs):
+    def __init__(self, edges=None, nodes=None, *args, **kwargs):
         """[summary]
 
         Args:
-            edges ([list], optional): [description]. Defaults to None.
+            edges (list, optional): Shape: (N, 2/3). Defaults to None.
+            nodes (dict, optional): [description]. Defaults to None.
         """
         self.graph = {}
-        self.prev = {}
+        self.prev  = {}
+        self.edge  = {}
+        self.node  = {}
+        
         if edges is not None:
             self.build_graph(edges)
 
+        if nodes is not None:
+            assert isinstance(nodes, dict), "Check the Node format"
+            self.node = nodes
+        
         self.calculate_degree()
+
 
     def __str__(self):
         return ""
 
-    def add_edge(self, start, end):
+
+    def add_edge(self, start, end, length=None):
         for p in [start, end]:
             for g in [self.graph, self.prev]:
                 if p in g:
                     continue
                 g[p] = set()
-
+            
         self.graph[start].add(end)
         self.prev[end].add(start)
+        if length is not None:
+            self.edge[(start, end)] = length
+            
         pass
+
 
     def remove_edge(self, start, end):
         self.graph[start].remove(end)
@@ -88,10 +102,21 @@ class Digraph:
             del self.prev[end]
         pass
 
+
     def build_graph(self, edges):
         for edge in edges:
-            self.add_edge(*edge)
+            start, end, length = edge
+            assert not(np.isnan(start) or np.isnan(end)), f"Check the input ({start}, {end})"
+            
+            if isinstance(start, float):
+                start = int(start)
+            if isinstance(end, float):
+                end = int(end)
+            
+            self.add_edge(start, end, length)
+        
         return self.graph
+
 
     def clean_empty_set(self):
         for item in [self.prev, self.graph]:
@@ -99,102 +124,25 @@ class Digraph:
                 if len(item[i]) == 0:
                     del item[i]
         pass
-        
+
+
     def calculate_degree(self,):
         self.clean_empty_set()
         self.degree = pd.merge(
             pd.DataFrame([[key, len(self.prev[key])]
-                          for key in self.prev], columns=['node_id', 'indegree']),
+                          for key in self.prev], columns=['pid', 'indegree']),
             pd.DataFrame([[key, len(self.graph[key])]
-                          for key in self.graph], columns=['node_id', 'outdegree']),
+                          for key in self.graph], columns=['pid', 'outdegree']),
             how='outer',
-            on='node_id'
-        ).fillna(0).astype(np.int)
+            on='pid'
+        ).fillna(0).astype(np.int).set_index('pid')
         
         return self.degree
 
+
     def get_origin_point(self,):
-        self.calculate_degree()
-        return self.degree.query( "indegree == 0 and outdegree != 0" ).node_id.values
-    
-    def _combine_edges_helper(self, origins, result=None, pre=None, roads=None, vis=False):
-        """combine segment based on the node degree
-
-        Args:
-            origins ([type]): [description]
-            result (list, optional): [Collection results]. Defaults to None.
-            pre ([type], optional): The previous points, the case a node with more than 2 children. Defaults to None.
-            roads (gpd.Geodataframe, optional): 道路数据框，含有属性 's' 和 'e'. Defaults to None.
-            vis (bool, optional): [description]. Defaults to False.
-        """
-        for o in origins:
-            pre_node = o
-            path = []
-            if pre is not None:
-                path = [[pre,o]]
-                self.remove_edge(pre,o)
-
-            if o not in self.graph:
-                return 
-            
-            # case: 0 indegree, > 2 outdegree
-            if len(self.graph[o]) > 1:
-                o_lst = list( self.graph[o] )
-                self._combine_edges_helper( o_lst, result, o, roads, vis )
-                return
-            
-            while o in self.graph and len(self.graph[o]) == 1:
-                o = list(self.graph[o])[0]
-                self.remove_edge( pre_node, o )
-                path.append([pre_node, o])
-                pre_node = o
-
-            if roads is not None:
-                assert hasattr(roads, 's') and hasattr(roads, 'e'), "attribute is missing"
-                tmp = gpd.GeoDataFrame(path, columns=['s','e']).merge( roads, on=['s','e'] )
-            
-                ids = []
-                for i in tmp.rid.values:
-                    if len(ids) == 0 or ids[-1] != i:
-                        ids.append(i)
-                # ids = '_'.join(map(str, ids))
-
-                if vis: map_visualize(tmp, 's')
-                if result is not None: result.append([tmp, ids ])
-
-            else:
-                if result is not None: result.append([path, []])
-            
-        return
-
-    def combine_edges(self, roads=None, vis=False):
-        """roads 是一开始传入的roads的df文件
-
-        Args:
-            roads ([type], optional): [description]. Defaults to None.
-            vis (bool, optional): [description]. Defaults to False.
-
-        Returns:
-            [type]: [description]
-        """
-        import copy
-        graph_bak = copy.deepcopy(self.graph)
-        prev_back = copy.deepcopy(self.prev.copy())
         
-        result = [] # path, road_id
-        origins = self.get_origin_point()
-        while len(origins) > 0:
-            self._combine_edges_helper(origins, result, roads=roads)
-            origins = self.get_origin_point()
-
-        if roads is not None and vis:
-            for i, _ in result:
-                map_visualize(i, 's')
-        
-        self.graph = graph_bak
-        self.prev = prev_back
-        
-        return result
+        return self.calculate_degree().reset_index().query( "indegree == 0 and outdegree != 0" ).pid.values
 
 
 class LongestPath:

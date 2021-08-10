@@ -3,7 +3,7 @@ import os, sys
 import geopandas as gpd
 import pandas as pd
 from sqlalchemy import create_engine
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 
 sys.path.append("..") 
 from utils.utils import load_config
@@ -14,6 +14,22 @@ pano_dir = config['data']['pano_dir']
 ENGINE   = create_engine(config['data']['DB'])
 
 #%%
+
+def load_postgis(table, bbox=None, geom_wkt=None, engine=ENGINE):
+    if bbox is not None:
+       geom_wkt = box(*bbox).to_wkt()
+     
+    if geom_wkt is None:
+        sql = f'select * from {table}'
+    else:        
+        sql = f"""select * from {table} where ST_Within( geometry, ST_GeomFromText('{geom_wkt}', 4326) )"""
+        
+    df = gpd.read_postgis( sql, geom_col='geometry', con=engine )
+    # shenzhen_boundary = gpd.read_file('../input/ShenzhenBoundary_wgs_citylevel.geojson')
+    # return gpd.sjoin(df, shenzhen_boundary, op='within')
+
+    return df
+
 
 def load_from_DB(new=False):
     """load data from DB
@@ -48,6 +64,10 @@ def load_from_DB(new=False):
 
 def load_DB_panos():
     return gpd.read_postgis( 'select * from panos', geom_col='geometry', con=ENGINE )
+
+
+def load_DB_panos_base():
+    return gpd.read_postgis( 'select * from pano_base', geom_col='geometry', con=ENGINE )
 
 
 def load_DB_roads():
@@ -194,6 +214,32 @@ def update_lane_num_in_DB():
     return    
 
 
+def gdf_to_postgis(gdf, name, engine=ENGINE, if_exists='replace', *args, **kwargs):
+    try:
+        gdf.to_postgis( name=name, con=engine, if_exists=if_exists )
+        return True
+    except:
+        print('gdf_to_postgis error!')
+    
+    return False
+
+
+def update_panos_url():
+    """Update the url attribute of panos
+    """
+    pano_img_fns = pd.DataFrame( os.listdir(pano_dir), columns=['fn'])
+    pano_img_fns.loc[:, 'PID'] = pano_img_fns.fn.apply(lambda x: x.split("_")[2] if len(x.split("_")) > 2 else None)
+    pano_img_fns.drop_duplicates('PID', inplace=True)
+
+    df_panos = load_DB_panos()
+    indexes_with_imgs = df_panos.merge(pano_img_fns['PID'], on='PID').index
+    df_panos.loc[indexes_with_imgs, 'url'] = df_panos.loc[indexes_with_imgs].PID.apply(lambda x: f"http://192.168.135.15:4000/pred_by_pid?format=img&pid={x}")
+    
+    gdf_to_postgis(df_panos, 'panos')
+
+    return
+
+
 #%%
 if __name__ == '__main__':
     DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(new = False)
@@ -232,3 +278,4 @@ if __name__ == '__main__':
 
     # update lane num in panos and roads
     # update_lane_num_in_DB()
+

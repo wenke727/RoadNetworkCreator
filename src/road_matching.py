@@ -1,7 +1,6 @@
 #%%
 import os
 import pickle
-from re import S
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -12,14 +11,15 @@ from tqdm import tqdm
 
 from pano_img import PANO_log, traverse_panos_by_rid
 from db.db_process import load_from_DB, extract_connectors_from_panos_respond, store_to_DB
+from db.features_API import get_features
 from utils.geo_plot_helper import map_visualize
 from utils.spatialAnalysis import linestring_length
+from utils.df_helper import query_df
 from utils.utils import load_config
 from utils.classes import Digraph, LongestPath
 from utils.spatialAnalysis import *
 from labels.label_helper import crop_img_for_lable
 from road_network import OSM_road_network
-# from panos_traverse import crawle_panos_in_district_area
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -30,13 +30,8 @@ _, DB_panos, DB_connectors, DB_roads = load_from_DB(False)
 config = load_config()
 pano_dir = config['data']['pano_dir']
 pano_group_dir = config['data']['pano_group_dir']
-# DF_matching = pd.read_csv( config['data']['df_matching'])
-# linestring_length(DB_roads, True)
 
-# osm_shenzhen = pickle.load(open("../input/road_network_osm_nanshan.pkl", 'rb') )
-osm_shenzhen = pickle.load(open("/home/pcl/traffic/data/input/road_network_osm_shenzhen.pkl", 'rb') )
-df_nodes, df_edges = osm_shenzhen.nodes, osm_shenzhen.edges
-
+df_edges = get_features('edge')
 
 #%%
 # 辅助函数
@@ -443,7 +438,6 @@ if __name__ == '__main__':
     start_crawle_panos(['南光路'])
 
     # 通过道路名称来匹配, 整个道路的数量情况
-    from utils.df_helper import query_df
 
     """ 道路匹配 """    
     road_name = '打石一路'

@@ -1,5 +1,21 @@
 
-def merge_intervals(intervals, start, end, height):
+def merge_intervals(intervals):
+    res = []
+    for i in intervals:
+        merge_intervals_helper(res, i[0], i[1])
+        
+    return res
+
+
+def merge_intervals_helper(intervals, start, end, height=None):
+    """merge intervals
+
+    Args:
+        intervals ([type]): [description]
+        start ([type]): [description]
+        end ([type]): [description]
+        height ([type], optional): [description]. Defaults to None.
+    """
     if start is None or height ==0 or start == end: 
         return 
 
@@ -13,6 +29,7 @@ def merge_intervals(intervals, start, end, height):
 
         return  
     intervals.append([start, end, height])
+
 
 def insert_intervals(intervals, newInterval):
     res = []
