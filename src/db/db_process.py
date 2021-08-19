@@ -31,6 +31,16 @@ def load_postgis(table, bbox=None, geom_wkt=None, engine=ENGINE):
     return df
 
 
+def gdf_to_postgis(gdf, name, engine=ENGINE, if_exists='replace', *args, **kwargs):
+    try:
+        gdf.to_postgis( name=name, con=engine, if_exists=if_exists )
+        return True
+    except:
+        print('gdf_to_postgis error!')
+    
+    return False
+
+
 def load_from_DB(new=False):
     """load data from DB
 
@@ -212,16 +222,6 @@ def update_lane_num_in_DB():
     store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads)
     
     return    
-
-
-def gdf_to_postgis(gdf, name, engine=ENGINE, if_exists='replace', *args, **kwargs):
-    try:
-        gdf.to_postgis( name=name, con=engine, if_exists=if_exists )
-        return True
-    except:
-        print('gdf_to_postgis error!')
-    
-    return False
 
 
 def update_panos_url():

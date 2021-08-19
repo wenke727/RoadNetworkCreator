@@ -39,6 +39,8 @@ ROAD_PANO_COUNT_DICT = {}
 
 #%%
 
+"""deprecated funcs"""
+
 def _get_revert_df_edges(road_id, df_edges, vis=False):
     """create the revert direction edge of rid in OSM file
 
@@ -85,6 +87,8 @@ def merge_rodas_segment(roads):
     return ids_sorted
 
 
+""" func """
+
 def get_panos_imgs_by_bbox(bbox=[113.92348,22.57034, 113.94372,22.5855], vis=True, with_folder=False):
     """给定一个区域，获取所有的panos
 
@@ -105,13 +109,6 @@ def get_panos_imgs_by_bbox(bbox=[113.92348,22.57034, 113.94372,22.5855], vis=Tru
         res += info
     print( 'total number of pano imgs: ', len(res))
     
-    # folder = './images'
-    # dst    = "~/Data/TuSimple/LSTR/lxd"    
-    if False:
-        if not os.path.exists(folder): os.mkdir(folder)
-        for fn in res: shutil.copy( fn, folder )
-        cmd = os.popen( f" mv {folder} {dst} " ).read()
-
     if not with_folder:
         res = [ i.split('/')[-1] for  i in res]
     
@@ -154,7 +151,7 @@ def update_unpredict_panos(pano_lst=DB_panos.PID.unique(), df_memo=df_memo):
     pano_lst = pd.DataFrame({'name': pano_lst})
     unpredict_lst = pano_lst[pano_lst.merge(df_memo, how='left', left_on='name', right_on='PID').lane_num.isna()]
     unpredict_lst = unpredict_lst.merge(DB_panos, left_on='name', right_on='PID')
-    queue = unpredict_lst.apply(lambda x: f"{x.RID}_{x.Order:02d}_{x.PID}_{x.DIR}.jpg", axis=1)
+    queue = unpredict_lst.apply(lambda x: f"{x.PID}_{x.DIR}.jpg", axis=1)
     
     for i in tqdm( queue.values, 'update_unpredict_panos'):
         _, df_memo = lane_shape_predict(i, df_memo)
@@ -214,7 +211,8 @@ def lstr_pred_check_by_bbox(BBOX):
 
 
 def lstr_pred_check_for_label():
-    """用现有算法预测框选区域的街景，后续将挑选错误的标注，并重新标注
+    """
+    用现有算法预测框选区域的街景，后续将挑选错误的标注，并重新标注
     """
     import pickle
     BBOX = [113.92131,22.5235, 113.95630,22.56855] # 科技园片区

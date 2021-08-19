@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 
+## [1.1.02] - 2021-08-19
+
+### Code refactoring
+
+- DigraphOSM.py
+- pano_base.py
+- pano_img.py
+- panos_traverse.py
+
 ## [1.1.01] - 2021-08-10
 
 ### Added

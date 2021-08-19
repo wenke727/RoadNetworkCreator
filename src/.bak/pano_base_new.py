@@ -94,19 +94,9 @@ def extract_gdf_panos_from_key_pano(gdf_panos, update_dir=False):
 
 
 def update_move_dir(gdf, gdf_key_panos):
-    """Update the moving direction of panos, for the heading of the last point in eahc segment is usually zero. 
-
-    Args:
-        gdf (GeoDataFrame): The original panos dataframe
-        gdf_key_panos (GeoDataFrame): The key panos dataframe
-
-    Returns:
-        [GeoDataFrame]: The panos dataframe after change the moving direaction
-    """
     gdf.sort_values(["RID", 'Order'], ascending=[True, False], inplace=True)
     idx = gdf.groupby("RID").head(1).index
-    
-    gdf.loc[idx, 'DIR'] = gdf.loc[idx].apply( lambda x: gdf_key_panos.loc[x.name]['MoveDir'] if x.name in gdf_key_panos.index else -1, axis=1 )
+    gdf.loc[idx, 'DIR'] = gdf.loc[idx].apply( lambda x: gdf_key_panos.loc[x.name]['MoveDir'], axis=1 )
     gdf.loc[:, 'DIR'] = gdf.loc[:, 'DIR'].astype(np.int)
     gdf.sort_values(["RID", 'Order'], ascending=[True, True], inplace=True)
     
@@ -341,3 +331,42 @@ if __name__ == '__main__':
     """ SZU check """
     pano_dict = saver.read('../cache/pano_dict_szu.pkl')
 
+# %%
+
+# TODO check pano
+
+
+def load_exist_pano_imgs(attrs=['pid', 'dir']):
+    fn_lst = os.listdir(PANO_FOLFER)
+    fn_lst =  pd.DataFrame([ [i] + i.split("_") for i in  fn_lst if 'jpg' in i ], columns=['fn']+attrs)
+    fn_lst.loc[:, 'dir'] = fn_lst.dir.apply(lambda x: int(x[:-4]))
+
+    return fn_lst
+
+
+# %%
+def check_unvisited_pano_img(pano_dict):
+
+    pano_imgs_exist = load_exist_pano_imgs()
+    pano_ids_exist = set( pano_imgs_exist.pid.unique() )
+
+    new_pano = { key: pano_dict[key] for key in pano_dict if key not in pano_ids_exist }
+    
+    if len(new_pano) == 0:
+        return None
+
+    new_pano = pano_dict_to_gdf(new_pano)
+    new_pano.loc[:, 'pid'] = new_pano.index
+    new_pano.loc[:, 'heading'] = new_pano.MoveDir.astype(int)
+    new_pano = new_pano[['pid', 'heading']].to_dict('records')
+
+    return new_pano
+
+# %%
+from pano_img import get_staticimage_batch
+
+new_pano_lst = check_unvisited_pano_img(pano_dict)
+
+get_staticimage_batch(new_pano_lst)
+
+# %%

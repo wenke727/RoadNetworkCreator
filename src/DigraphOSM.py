@@ -391,7 +391,8 @@ class Digraph_OSM(Digraph):
     def upload_topo_data_to_db(self, name):
         try:
             gdf_to_postgis(self.df_edges, f'topo_osm_{name}_edge')
-            gdf_to_postgis(self.df_node_with_degree, f'topo_osm_{name}_node')
+            gdf_to_postgis(self.df_node_with_degree, f'topo_osm_{name}_endpoint')
+            gdf_to_postgis(self.df_nodes, f'topo_osm_{name}_node')
             return True
         except:
             if logger:
@@ -443,8 +444,7 @@ def load_net_helper(bbox=None, xml_fn=None, combine_link=True, overwrite=False, 
 #%%
 if __name__ == '__main__':
     # net = load_net_helper(xml_fn='../input/futian.xml', combine_link=True)
-    net = load_net_helper(bbox=PCL_BBOX, combine_link=True, reverse_edge=True, overwrite=True, two_way_offeset=True)
-    net.upload_topo_data_to_db('pcl')
+    net = load_net_helper(bbox=SZ_BBOX, combine_link=True, reverse_edge=True, overwrite=True, two_way_offeset=True)
+    net.upload_topo_data_to_db('shenzhen')
 
-
-# %%
+#%%

@@ -1,203 +1,294 @@
-from pano_base import *
-from utils.spatialAnalysis import create_polygon_by_bbox, linestring_length
 
-traverse_panos_by_road_name_new('环观南路')
-
-traverse_panos_by_road_name_new('观乐路')
-
-def check_pid_duplicate_in_folder( folder = '/home/pcl/Data/minio_server/panos_data/Futian/益田路' ):
-    """Check whether there is any pid dulplicate in the folder
-    """ 
-    if not os.path.exists(folder): 
-        os.mkdir(folder)
-        return 
+# %%
+# ! extract topo data
+def _parse_road_and_links(pano):
+    _roads = pano['Roads']
     
-    lst = os.listdir(folder)
-    df = pd.DataFrame(lst, columns=['fn'])
-    df.loc[:, 'pid'] = df.fn.apply( lambda x: x.split("_")[-2] )
+    # judge by `IsCurrent`
+    cur_index = 0
+    for idx, r in enumerate(_roads):
+        if r['IsCurrent'] != 1:
+            continue
+        cur_index = idx
+        break
 
-    df_count = pd.DataFrame(df.pid.value_counts())
-    num = df_count.query('pid>1').shape[0]
-    if num != 0:
-        print( f"total num: {df.shape[0]}, dulpicate num: {df_count.query('pid>1').shape[0]}" )
-    else:
-        print( f"NO duplication: {folder}" )
-    return
+    nodes = _roads[cur_index]['Panos']
 
+    _rid, src, dst = _roads[cur_index]['ID'], nodes[0]['PID'], nodes[-1]['PID']
+    res = [{'rid': _rid, 'src': src, 'dst': dst, 'link':False}]
 
-# area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
-# area = area.query( "name =='龙华区'" )  
-# # area = area.query( "name =='南山区'" )  
-
-# area.plot()
-
-
-def get_unvisited_point(road_name = '民治大道', buffer=20):
-    # TODO 识别没有抓取到数据的区域
-    df_roads, ports, road_buffer = get_road_buffer(road_name, buffer)
-    lst = []
-    for x in df_roads.geometry.apply( lambda x: x.coords[:] ):
-        lst += x
-
-    points = gpd.GeoDataFrame( {'geometry':[ Point(i) for i in set(lst)]})
-    points.loc[:, 'area'] = points.buffer(buffer/110/1000)
-    points.reset_index(inplace=True)
-
-    panos = get_features('point', points.total_bounds)
-    points.set_geometry('area', inplace=True)
-
-    visited = sorted(gpd.sjoin(left_df=points, right_df=panos, op='contains')['index'].unique().tolist())
-    ans = points.query( f"index not in {visited} " )
-
-    return ans 
+    links = pano['Links']
+    for link in links:
+        info = {'src': pano.name, 'dst': link['PID'], 'link':True}
+        res.append(info)
+        
+    return res
 
 
-#%%
-BBOX = [113.92389,22.54080, 113.95558,22.55791] # 科技园中片区
+def get_topo_from_gdf_pano(gdf_panos, drop_irr_records=True):
+    """[summary]
 
-# step 1: 读取龙华区的道路数据
-df_edges = gpd.read_file('/home/pcl/Data/minio_server/input/edges_Shenzhen.geojson')
-# area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
-# area = area.query( "name =='龙华区'" )  
-area = create_polygon_by_bbox(BBOX)
-tmp = gpd.clip(df_edges, area, True)
+    Args:
+        gdf_panos ([type]): [description]
+        drop_irr_records (bool, optional): Remove irrelevant records (the origin or destiantion not in the key_panos). Defaults to True.
 
-# step 2: 读取现有街景的数据
-panos = get_features('point', geom=area)
+    Returns:
+        [type]: [description]
+    """
 
-# step 3: 作差
-buffer = 3.75 *2
-tmp.loc[:, 'area'] = tmp.buffer(buffer/110/1000)
-tmp.set_geometry('area', inplace=True)
-tmp.reset_index(inplace=True)
+    topo = []
+    for lst in tqdm(gdf_panos.apply(lambda x: _parse_road_and_links(x), axis=1).values):
+        topo += lst
 
-visited = sorted(gpd.sjoin(left_df=tmp, right_df=panos, op='contains')['index'].unique().tolist())
-road_type_filter = ['residential']
-df_unvisited = tmp.query( f"index not in {visited} and road_type not in {road_type_filter}" )
+    df_topo = pd.DataFrame(topo)
+    df_topo.drop_duplicates(df_topo.columns, inplace=True)
 
-df_unvisited.plot()
+    if drop_irr_records:
+        pano_ids = gdf_panos.index.values.tolist()
+        df_topo.query("src in @pano_ids and dst in @pano_ids", inplace=True)
 
-#%%
+    # calculate the similarity 
+    df_topo.loc[:,['dir_0', 'dir_1']] = df_topo.apply(lambda x: 
+        {'dir_0': gdf_panos.loc[x.src]['MoveDir'], 'dir_1': gdf_panos.loc[x.dst]['MoveDir']}, 
+        axis=1, result_type='expand')
+    df_topo.loc[:, 'similarity'] = df_topo.apply(lambda x: math.cos( azimuth_diff(x.dir_0, x.dir_1) ), axis=1)
+    df_topo.loc[~df_topo.link, 'similarity'] = 1
 
-# step 4: 开始采集新数据
-#TODO 
-unvisited_name = df_unvisited.name.dropna().unique()
+    df_topo.sort_values(['src', 'link', 'similarity'], ascending=[True, True, False], inplace=True)
 
-from tqdm import tqdm 
-for name in tqdm(unvisited_name[4:], desc=f'trasvers roads: '):
-    print(name)
-    try:
-        traverse_panos_by_road_name_new(name)
-    except:
-        pass
+    df_topo.set_index(['src', 'dst'], inplace=True)
+
+    return df_topo
+
+
+def azimuth_diff(a, b, unit='radian'):
+    """calcaluate the angle diff between two azimuth
+
+    Args:
+        a ([type]): Unit: degree
+        b ([type]): Unit: degree
+        unit(string): radian or degree
+
+    Returns:
+        [type]: [description]
+    """
+    diff = abs(a-b)
+
+    if diff > 180:
+        diff = 360-diff
+
+    return diff if unit =='degree' else diff*math.pi/180
+
+
+pid = '09005700121709091037594139Y'
+res = _parse_road_and_links(gdf_panos.loc[pid])
+
+df_topo = get_topo_from_gdf_pano(gdf_panos)
+df_topo
+
+# df_roads = df_topo[~df_topo.link]
+# df_links = df_topo[df_topo.link]
+
+topo = df_topo.to_dict(orient='index')
 
 
 # %%
-""" /home/pcl/traffic/RoadNetworkCreator_by_View/src/predict_lanes.py """
 
-# useless
-def get_heading_according_to_prev_road(rid):
-    """ 可能会有多个值返回，如：
-        rid = 'ba988a-7763-e9af-a5fb-dc8590'
-    """
-    # config   = load_config()
-    # ENGINE   = create_engine(config['data']['DB'])
-   
-    sql = f"""SELECT panos.* FROM 
-            (SELECT "RID", max("Order") as "Order" FROM
-                (
-                SELECT * FROM panos 
-                WHERE "RID" in
-                    (
-                        SELECT "RID" FROM panos 
-                        WHERE "PID" in 
-                        (
-                            SELECT prev_pano_id FROM connectors 
-                            WHERE "RID" = '{rid}'
-                        )
-                    )
-                ) a
-            group by "RID") b,
-            panos
-        WHERE panos."RID" = b."RID" and panos."Order" = b."Order"
-        """
-    res = pd.read_sql( sql, con=ENGINE )
-    res
+id = '09005700121709091548023739Y'
+df_topo.query( "src == @id or dst == @id" )
 
-    return res.DIR.values.tolist()
+# %%
+graph = {}
+
+for src, dst, link in df_topo.reset_index()[['src', 'dst', 'link']].values:
+    graph[src] = graph.get(src, set())
+    graph[src].add(dst)
+
+# for s, e, link in df_topo[['src', 'dst', 'link']].values:
+#     graph[s] = graph.get(s, dict())
+#     graph[s][e] = (link)
+
+graph
+#%%
+
+def forward_bfs(node, max_layer=50):
+    queue = deque([node])
+    path = [node]
+
+    visited_pid = set()
+    visited_rid = []
+
+    layer = 1
+    while queue:
+        for _ in range(len(queue)):
+            cur = queue.popleft()
+            visited_pid.add(cur)
+            
+            # for nxt in graph[cur]:
+            for nxt, nxt_item in df_topo.loc[cur].iterrows():
+                if nxt not in graph:
+                    continue
+                
+                print(layer, (cur, nxt))
+                
+                if nxt in visited_pid:
+                    continue
+                
+                if topo[(cur, nxt)]['similarity'] < 0.8:
+                    break
+                
+                if not topo[(cur, nxt)]['link']:
+                    visited_rid.append(topo[(cur, nxt)]['rid'])
+                    if (nxt, nxt) in topo:
+                        visited_rid.append(topo[(nxt, nxt)]['rid'])   
+                
+                path.append(nxt)
+                queue.append(nxt)
+                
+                break
+            
+        layer += 1
+        
+        if layer > max_layer:
+            break
+
+    return visited_rid
 
 
-def calc_angle(item): 
-    """计算GPS坐标点的方位角 Azimuth 
+# pid = '09005700121709091547432209Y'
+# pid = '09005700121709091539399529Y'
+pid = '09005700121709091036077249Y'
+pid = '09005700121709031453099872S'
+pid = '09005700122003211407076215O'
+pid = '09005700122003211407319405O'
 
-    Args:
-        item ([type]): [description]
+rids = forward_bfs(pid)
 
-    Returns:
-        [type]: [description]
-    """
-    angle=0
+map_visualize(
+    gdf_roads.loc[list(rids)]
+)
+# %%
+query_df(df_topo, 'src', '09005700121709091548023739Y')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# %%
+
+# ! load `PCL` data
+def load_data():
+    gdf_pano = load_postgis('panos_lst')
+    roads     = load_postgis('roads')
+
+    roads.drop_duplicates('RID', inplace=True)
+    roads.set_index('RID', inplace=True)
+
+    attrs = ['Links', 'Roads']
+    for i in attrs:
+        gdf_pano.loc[:, i] = gdf_pano.apply(lambda x: eval(x[i]), axis=1)
+
+    pd_links_len = gdf_pano.Links.apply(len)
+    gdf_pano = gdf_pano[pd_links_len!=0]
+
+    gdf_pano.drop_duplicates('ID', inplace=True)
+    gdf_pano.set_index("ID", inplace=True)
+
+    return gdf_pano, roads
+
+# gdf_pano, roads = load_data()
+# pano_dict = gdf_pano.to_dict(orient='index')
+
+# %%
+def get_pano_links(id, gdf_panos):
+    links = gdf_panos.loc[id]['Links']
     
-    x1, y1 = item.p0[0], item.p0[1]
-    x2, y2 = item.p1[0], item.p1[1]
+    return links
     
-    dy= y2-y1
-    dx= x2-x1
-    if dx==0 and dy>0:
-        angle = 0
-    if dx==0 and dy<0:
-        angle = 180
-    if dy==0 and dx>0:
-        angle = 90
-    if dy==0 and dx<0:
-        angle = 270
-    if dx>0 and dy>0:
-       angle = math.atan(dx/dy)*180/math.pi
-    elif dx<0 and dy>0:
-       angle = 360 + math.atan(dx/dy)*180/math.pi
-    elif dx<0 and dy<0:
-       angle = 180 + math.atan(dx/dy)*180/math.pi
-    elif dx>0 and dy<0:
-       angle = 180 + math.atan(dx/dy)*180/math.pi
-    return angle
+id = '09005700121709091035388809Y'
+links = get_pano_links(id, gdf_panos)
+
+queue = deque([])
+for link in links:
+    node = link['PID']
+    if node in gdf_panos.index:
+        print(node, 'exist')
+        continue
+    print(node)
+    queue.append(node)
 
 
-def calc_angle_for_df(df):
-    coords = df.geometry.apply(lambda x: x.coords[0]) 
-    df_new = pd.DataFrame()
-    df_new['p0'], df_new['p1'] = coords, coords.shift(-1)
+# %%
 
-    df_new[:-1].apply(lambda x: calc_angle(x), axis=1)
+# TODO forward, backward, 提取topo
+def bfs_forward_origin(rid, gdf_pano=gdf_panos, roads=gdf_roads, plot=True, degree_thres=15):
+    queue = deque([roads.loc[rid]['PID_end']])
+    visited = set()
 
+    path = [rid]
 
-def draw_network_lanes( fn = "../lxd_predict.csv", save_img=None ):
-    """draw High-precision road network 
-
-    Args:
-        fn (str, optional): [description]. Defaults to "../lxd_predict.csv".
-        save_img ([type], optional): [description]. Defaults to None.
-
-    Returns:
-        [type]: [description]
-    """
-    from scipy import stats
-    colors = ['black', 'blue', 'orange', 'yellow', 'red']
-    widths = [0.75, 0.9, 1.2, 1.5, 2.5, 3]
+    def _is_valid(cur, nxt):
+        return abs(cur['MoveDir'] - nxt['MoveDir']) < degree_thres
     
-    df = pd.read_csv(fn)
-    df.loc[:, "RID"] = df.name.apply( lambda x: x.split('/')[-1].split('_')[-4] )
-    df = df.groupby( 'RID' )[['lane_num']].agg( lambda x: stats.mode(x)[0][0] ).reset_index()
-    df.loc[:, 'lane_num'] = df.lane_num - 1
+    while queue:
+        cur = queue.pop()
+        if cur not in gdf_pano.index:
+            continue
+        
+        cur_info = gdf_pano.loc[cur]
 
-    matching = DB_roads.merge( df, on = 'RID' )
-    max_lane_num = matching.lane_num.max()
+        if cur_info['RID'] in visited:
+            continue
+        
+        for link in cur_info['Links']:
+            nxt = link['PID']
+            if nxt not in gdf_pano.index:
+                print(f"nxt {nxt} not in gdf_pano")
+                continue
+            
+            nxt_info = gdf_pano.loc[nxt]
+            
+            if not _is_valid(cur_info, nxt_info):
+                print(f"{nxt_info['RID']} not valid")
+                continue
 
-    fig, ax = map_visualize(matching, color='gray', scale=.05, figsize=(12, 12))
-    for i in range(max_lane_num):
-        matching.query(f'lane_num=={i+1}').plot(color = colors[i], linewidth = widths[i], label =f'{i+1} lanes', ax=ax)
-    plt.legend()
-    plt.close()
-    
-    if save_img is not None: plt.savefig(save_img, dpi =500)
+            nxt_rid = gdf_pano.loc[nxt]['RID']
+            nxt_rid_start, nxt_rid_end = roads.loc[nxt_rid][['PID_start','PID_end']]
+            
+            if link['PID'] != nxt_rid_start:
+                print(f"{link['PID']} != {nxt_rid_start}, {link['RID']}")
+                continue
+            
+            print(cur, nxt, cur_info['MoveDir'], nxt_info['MoveDir'], queue )
+            queue.append(nxt_rid_end)
+            path.append(nxt_info['RID'])
 
-    return matching
+        visited.add(cur_info['RID'])
+
+    if plot:
+        roads.loc[path].plot()
+
+    return path
+
+# 创科路北行
+rid = 'b1e1bb-bcf9-1d16-0e6d-c02c40'
+# 创科路南行
+rid = '4bb09e-46d2-40c0-6421-026285'
+# 打石一路东行
+rid = '81ce8c-d832-1db9-61dc-ee8b61'
+# 打石一路西行
+rid = 'd39bfb-b6e3-0ad8-582b-b97ccd'
+
+bfs_forward_origin(rid)
+
