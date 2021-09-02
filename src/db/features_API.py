@@ -46,10 +46,10 @@ def get_features(feature, bbox=None, geom=None, in_sys='wgs84'):
                 'road': 'roads', 
                 'edge': 'osm_edge_shenzhen', 
                 'node': 'osm_node_shenzhen' }
-    
+    feature = feature if feature not in matching else matching[feature]
     # assert not (bbox is None and geom is None), "bbox and geom cann't both be 0"
     if geom is None and bbox is None:
-        res = gpd.read_postgis( f"""SELECT * FROM {matching[feature]} """, 
+        res = gpd.read_postgis( f"""SELECT * FROM {feature} """, 
                                 geom_col='geometry', 
                                 con=ENGINE )
         
@@ -58,7 +58,7 @@ def get_features(feature, bbox=None, geom=None, in_sys='wgs84'):
     if geom is None:
         geom = create_polygon_by_bbox( bbox=bbox )
         
-    sql = f"""SELECT * FROM {matching[feature]} 
+    sql = f"""SELECT * FROM {feature} 
               WHERE ST_Crosses( geometry, ST_GeomFromText('{geom}', 4326) ) or 
                     ST_Within( geometry, ST_GeomFromText('{geom}', 4326) )
             """
@@ -67,19 +67,20 @@ def get_features(feature, bbox=None, geom=None, in_sys='wgs84'):
     return res
 
 
-# def get_features_districts():
-
 if __name__ == '__main__':
     from utils.geo_plot_helper import map_visualize
+    from db.db_process import update_lane_num_in_DB
     # df = gpd.GeoDataFrame([{ 'geometry': bbox, 'index':0 }])
+
+    import geopandas as gpd
+    futian_area = gpd.read_file('../../cache/福田路网区域.geojson').iloc[0].geometry.wkt
+    res = get_features(feature='line', geom=futian_area)
+    res_road = get_features(feature='topo_osm_shenzhen_edge', geom=futian_area)
 
     res = get_features(feature='line', bbox=[113.929807, 22.573702, 113.937680, 22.578734])
     map_visualize(res)
     res.head(2).to_json()
-    
-    
-    from db.db_process import update_lane_num_in_DB
-    
+
     
     area = gpd.read_file('/home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson')
     area = area.query( "name =='龙华区'" )  

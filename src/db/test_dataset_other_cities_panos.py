@@ -45,7 +45,6 @@ def start():
     random.seed(1)
 
     citis = ['北京','上海', '广州', '杭州']
-    # from road_network import create_test_dataset_for_cites
     # create_test_dataset_for_cites(citis)
     
     for city in citis[3:]:

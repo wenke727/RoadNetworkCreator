@@ -19,7 +19,6 @@ from df_helper import query_df
 
 """ import road network from OSM """
 # import pickle
-# from road_network import OSM_road_network
 
 # config = load_config()
 # pano_dir = config['data']['pano_dir']
