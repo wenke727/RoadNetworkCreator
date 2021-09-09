@@ -23,10 +23,10 @@ from setting import PANO_FOLFER
 
 saver = PickleSaver()
 
-from setting import SZ_BBOX, GBA_BBOX, PCL_BBOX, LXD_BBOX
+from setting import SZ_BBOX, GBA_BBOX, PCL_BBOX, LXD_BBOX, CACHE_FOLDER, SZU_BBOX
 
 g_log_helper = LogHelper(log_name='pano.log', stdOutFlag=False)
-logger = g_log_helper.make_logger(level=logbook.INFO)
+logger = g_log_helper.make_logger(level=logbook.DEBUG)
 
 
 #%%
@@ -36,7 +36,7 @@ def pano_dict_to_gdf(pano_dict):
     return gpd.GeoDataFrame(pano_dict).T.set_crs(epsg=4326)
 
 
-def extract_gdf_road_from_key_pano(gdf_panos):
+def extract_gdf_roads_from_key_pano(gdf_panos):
     def _extract_helper(_roads):
         for r in _roads:
             if r['IsCurrent'] != 1:
@@ -299,10 +299,31 @@ def crawl_panos_by_area(bbox=None, geom=None, verbose=True, plot=True):
 
     if plot:
         gdf_panos = pano_dict_to_gdf(pano_dict)
-        gdf_roads = extract_gdf_road_from_key_pano(gdf_panos)
+        gdf_roads = extract_gdf_roads_from_key_pano(gdf_panos)
         map_visualize(gdf_roads)
     
     return pano_dict
+
+
+def pano_base_main(project_name, geom=None, bbox=None):
+    fn = os.path.join(CACHE_FOLDER, f"pano_dict_{project_name}.pkl")
+    if os.path.exists(fn):
+        pano_dict = saver.read(fn)
+    else:
+        pano_dict = crawl_panos_by_area(bbox=bbox, geom=geom)
+        saver.save(pano_dict, fn)
+    
+    gdf_base = pano_dict_to_gdf(pano_dict)
+    gdf_roads = extract_gdf_roads_from_key_pano(pano_dict)
+    gdf_panos = extract_gdf_panos_from_key_pano(pano_dict, update_dir=True)
+
+    res = { 'pano_dict': pano_dict,
+            'gdf_base': gdf_base,
+            'gdf_roads': gdf_roads,
+            'gdf_panos': gdf_panos,
+        }
+
+    return res
 
 
 #%%
@@ -328,7 +349,7 @@ if __name__ == '__main__':
 
     """ extract data from key panos """
     gdf_key_panos = pano_dict_to_gdf(pano_dict)
-    gdf_roads = extract_gdf_road_from_key_pano(pano_dict)
+    gdf_roads = extract_gdf_roads_from_key_pano(pano_dict)
     gdf_panos = extract_gdf_panos_from_key_pano(pano_dict, update_dir=True)
     map_visualize( gdf_key_panos )
 
@@ -340,4 +361,9 @@ if __name__ == '__main__':
 
     """ SZU check """
     pano_dict = saver.read('../cache/pano_dict_szu.pkl')
+
+
+    """ test_main """
+    res = pano_base_main(project_name='lxd', bbox=LXD_BBOX)
+    res = pano_base_main(project_name='szu', bbox=SZU_BBOX)
 

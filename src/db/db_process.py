@@ -191,6 +191,7 @@ def update_lane_num_in_DB():
     """
     from scipy import stats
     df_memo = pd.read_csv(config['data']['df_pred_memo'])
+    
     df_memo.loc[:, 'pred'] = df_memo.pred.apply( lambda x: eval(x) )
     DB_pano_base, DB_panos, DB_connectors, DB_roads = load_from_DB(new = False)
 
@@ -234,6 +235,8 @@ def update_panos_url():
     df_panos = load_DB_panos()
     indexes_with_imgs = df_panos.merge(pano_img_fns['PID'], on='PID').index
     df_panos.loc[indexes_with_imgs, 'url'] = df_panos.loc[indexes_with_imgs].PID.apply(lambda x: f"http://192.168.135.15:4000/pred_by_pid?format=img&pid={x}")
+    # the url to show the predict pic
+    df_panos.loc[:, 'predict_url'] = df_panos.PID.apply(lambda x: f"http://192.168.135.15:4000/pred_by_pid?format=img&pid={x}")
     
     gdf_to_postgis(df_panos, 'panos')
 

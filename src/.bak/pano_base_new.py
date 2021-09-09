@@ -36,7 +36,7 @@ def pano_dict_to_gdf(pano_dict):
     return gpd.GeoDataFrame(pano_dict).T.set_crs(epsg=4326)
 
 
-def extract_gdf_road_from_key_pano(gdf_panos):
+def extract_gdf_roads_from_key_pano(gdf_panos):
     def _extract_helper(_roads):
         for r in _roads:
             if r['IsCurrent'] != 1:
@@ -289,7 +289,7 @@ def crawl_panos_by_area(bbox=None, geom=None, verbose=True, plot=True):
 
     if plot:
         gdf_panos = pano_dict_to_gdf(pano_dict)
-        gdf_roads = extract_gdf_road_from_key_pano(gdf_panos)
+        gdf_roads = extract_gdf_roads_from_key_pano(gdf_panos)
         map_visualize(gdf_roads)
     
     return pano_dict
@@ -318,7 +318,7 @@ if __name__ == '__main__':
 
     """ extract data from key panos """
     gdf_key_panos = pano_dict_to_gdf(pano_dict)
-    gdf_roads = extract_gdf_road_from_key_pano(pano_dict)
+    gdf_roads = extract_gdf_roads_from_key_pano(pano_dict)
     gdf_panos = extract_gdf_panos_from_key_pano(pano_dict, update_dir=True)
     map_visualize( gdf_key_panos )
 

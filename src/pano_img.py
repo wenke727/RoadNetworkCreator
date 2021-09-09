@@ -4,6 +4,8 @@ import os
 import requests
 import time
 import random
+import pandas as pd
+import geopandas as gpd
 import multiprocessing
 import logbook
 from utils.http_helper import get_proxy
@@ -172,6 +174,11 @@ def _multi_helper(param):
 def get_staticimage_batch(lst, n_jobs=30, with_bar=True, bar_describe="Crawl panos"):
     if lst is None:
         return None
+    
+    if isinstance(lst, gpd.GeoDataFrame) or isinstance((lst, pd.DataFrame)):
+        lst = lst.reset_index().\
+                  rename(columns={"PID": 'pid', 'DIR': 'heading'})[['pid', 'heading']].\
+                  to_dict(orient='records')
     
     from tqdm import tqdm
     pbar = tqdm(total=len(lst))

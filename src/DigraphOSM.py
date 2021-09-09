@@ -392,6 +392,8 @@ class Digraph_OSM(Digraph):
         try:
             gdf_to_postgis(self.df_edges, f'topo_osm_{name}_edge')
             gdf_to_postgis(self.df_node_with_degree, f'topo_osm_{name}_endpoint')
+
+            self.df_nodes.loc[:, 'id'] = self.df_nodes.index
             gdf_to_postgis(self.df_nodes, f'topo_osm_{name}_node')
             return True
         except:

@@ -12,6 +12,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 
+## [1.1.03] - 2021-09-09
+
+### Added
+
+- `main.py`
+  - the framework of the total project
+- `pano_base.py`
+  - `pano_base_main` the main function in the module
+- `pano_predict.py`
+  - 原`predict_lanes.py`重构
+- `pano_topo.py`
+  - `bfs`
+    - visted (src, dst);
+    - change `if nxt_pid not in df_topo.index:`
+  - `bidirection_bfs`
+    - `pid not in df_topo.index and pid not in df_topo_prev.index`, or -> and
+  - `combine_rids`
+    - add `UnionFind` to find the origin rid
+    - change the format of return.
+  - `get_trajectory_by_rid`
+- `db_process.py` add `predicted_url`.
+- `utils.azimuth_helper.py`
+- `utils.douglasPeucker.py`
+  - compress alg for line and points
+- `utils.unionFind.py`
+  - to check the start edge of trajectory
+
+### Changed
+
+- `DigraphOSM`
+  - `self.df_nodes` add "pid"
+
 ## [1.1.02] - 2021-08-19
 
 ### Code refactoring

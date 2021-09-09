@@ -9,7 +9,7 @@ from haversine import haversine
 from shapely.geometry import Point
 from tqdm import tqdm
 
-from pano_img import PANO_log, traverse_panos_by_rid
+from pano_img import pano_API_log, traverse_panos_by_rid
 from db.db_process import load_from_DB, extract_connectors_from_panos_respond, store_to_DB
 from db.features_API import get_features
 from utils.geo_plot_helper import map_visualize
@@ -312,7 +312,7 @@ def crawl_pano_imgs_by_roadid(road_id, df_edges, df_matching_path=config['data']
 
     res = []
     for rid in tqdm( matching.RID.values ):
-        r, _ = traverse_panos_by_rid(rid=rid, DB_pano=DB_panos,log=PANO_log)
+        r, _ = traverse_panos_by_rid(rid=rid, DB_pano=DB_panos,log=pano_API_log)
         res += r
 
     res = pd.DataFrame({'road_id': [road_id] *len(res), 'path':res})
@@ -358,7 +358,7 @@ def crawl_pano_imgs_by_roadid_batch(road_ids, df_edges, road_name, visited=set([
     # obtain panos imgs
     panos_img_paths = []; road_type_lst = []
     for rid, road_type in tqdm( matching[['RID', 'link']].values, desc="traverse panos by rid" ):
-        fns, _ = traverse_panos_by_rid(rid=rid, DB_panos=DB_panos, log=PANO_log)
+        fns, _ = traverse_panos_by_rid(rid=rid, DB_panos=DB_panos, log=pano_API_log)
         panos_img_paths += fns
         road_type_lst += [road_type] * len(fns)
 

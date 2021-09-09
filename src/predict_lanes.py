@@ -1,8 +1,6 @@
 #%%
-import io
 import os, sys
 import math
-import shutil
 import pandas as pd
 import geopandas as gpd
 import PIL
@@ -13,9 +11,9 @@ from shapely.geometry import Point, LineString
 import numpy as np
 from tqdm import tqdm
 
-from pano_img import traverse_panos_by_rid, PANO_log
-from road_network import OSM_road_network
-from road_matching import * # df_edges: osm_shenzhen.edges
+from pano_img import traverse_panos_by_rid, pano_API_log
+from road_network import OSM_road_network 
+# from road_matching import * # df_edges: osm_shenzhen.edges
 
 from db.features_API import get_features
 from utils.utils import load_config
@@ -105,7 +103,7 @@ def get_panos_imgs_by_bbox(bbox=[113.92348,22.57034, 113.94372,22.5855], vis=Tru
     if vis: map_visualize(features)
 
     for rid in tqdm(features.RID.unique(), desc='get_panos_imgs_by_bbox'):
-        info, _ = traverse_panos_by_rid(rid, DB_panos, log=PANO_log, all=False)
+        info, _ = traverse_panos_by_rid(rid, DB_panos, log=pano_API_log, all=False)
         res += info
     print( 'total number of pano imgs: ', len(res))
     
@@ -343,7 +341,7 @@ def lane_shape_predict_for_rid_segment(rid,
     if folder is not None and not os.path.exists(folder):
         os.mkdir(folder)
     
-    lst, df_pids = traverse_panos_by_rid(rid, DB_panos, PANO_log, all=all_panos)
+    lst, df_pids = traverse_panos_by_rid(rid, DB_panos, pano_API_log, all=all_panos)
     imgs = []
 
     for i in [ f.split("/")[-1] for f in lst]:
@@ -491,9 +489,6 @@ if __name__ == "__main__":
 
     """ 预测 OSM一条道路 的情况 """
     fns, rids_lst = pred_osm_road_by_rid(208128052, df_edges, combineImgs=True)
-    # 预测其反方向情况
-    tmp = _get_revert_df_edges(-208128052, df_edges)
-    pred_osm_road_by_rid(-208128052, tmp, combineImgs=True)
 
 
     # BUG 一条路仅有一个点的情况下，需要更新DIR数值； 终点也需要更新数值
@@ -506,3 +501,15 @@ if __name__ == "__main__":
 
     # df_road_with_1_node.to_csv("../df_road_with_1_node.csv")
 
+#%%
+
+gdf = gpd.read_file("../cache/panos_for_test.geojson")
+
+
+#%%
+pid = '09005700121709121245237738V'
+plot_pano_and_its_view(pid, DB_panos, DB_roads)
+
+add_location_view_to_img()
+
+# %%
