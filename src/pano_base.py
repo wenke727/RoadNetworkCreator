@@ -4,6 +4,7 @@ import math
 import json
 import time
 import random
+from numpy.lib.utils import lookfor
 import requests
 import numpy as np
 import pandas as pd
@@ -19,14 +20,11 @@ from utils.log_helper import logbook, LogHelper
 from utils.coord.coord_transfer import bd_mc_to_wgs, wgs_to_bd_mc
 from utils.geo_plot_helper import map_visualize
 from utils.pickle_helper import PickleSaver
-from setting import PANO_FOLFER
+from setting import FT_BBOX, PANO_FOLFER
 
 saver = PickleSaver()
 
 from setting import SZ_BBOX, GBA_BBOX, PCL_BBOX, LXD_BBOX, CACHE_FOLDER, SZU_BBOX
-
-g_log_helper = LogHelper(log_name='pano.log', stdOutFlag=False)
-logger = g_log_helper.make_logger(level=logbook.DEBUG)
 
 
 #%%
@@ -125,7 +123,7 @@ def parse_pano_respond(res):
     return pid, item
 
 
-def query_pano_by_api(lon=None, lat=None, pid=None, proxies=True, logger=logger, memo=None):
+def query_pano_by_api(lon=None, lat=None, pid=None, proxies=True, logger=None, memo=None):
     
     def __request_helper(url):
         i = 0
@@ -133,19 +131,22 @@ def query_pano_by_api(lon=None, lat=None, pid=None, proxies=True, logger=logger,
             try:
                 proxy = {'http': get_proxy()} if proxies else None
                 respond = requests.get(url, timeout=5, proxies=proxy)
-                logger.debug(f'query {url}, by {proxy}')
                 
                 if respond.status_code != 200:
-                    logger.warning( f"query {url}, error: {respond.status_code}")
+                    if logger is not None:
+                        logger.warning( f"{url}, error: {respond.status_code}")
 
                 res = json.loads( respond.text )
                 if 'content' not in res:
-                    logger.error(f"{url}, Respond: {res}")
+                    if logger is not None:
+                        logger.error(f"{url}, Respond: {res}")
                 else:
+                    if logger is not None:
+                        logger.debug(f'{url}, by {proxy}')
                     return res
 
             except requests.exceptions.RequestException as e:
-                logger.error(f"query {url}: ", e)
+                logger.error(f"{url}: ", e)
 
             i += 1
             time.sleep(random.randint(1,10))
@@ -160,9 +161,11 @@ def query_pano_by_api(lon=None, lat=None, pid=None, proxies=True, logger=logger,
         
         if 'content' in res and 'id' in res['content']:
             pid = res['content']['id']
-            logger.debug(f"Coords({lon}, {lat}) -> ({x}, {y}) -> {pid}")
+            if logger is not None:
+                logger.info(f"Coords({lon}, {lat}) -> ({x}, {y}) -> {pid}")
         else:
-            logger.warning(f"Coords ({x}, {y}) has no mathed pano.")
+            if logger is not None:
+                logger.warning(f"Coords ({x}, {y}) has no matched pano.")
     
     if pid is not None:
         if memo is not None and pid in memo:
@@ -180,7 +183,7 @@ def query_pano_by_api(lon=None, lat=None, pid=None, proxies=True, logger=logger,
     return {'pid': pid, 'info': item}
 
 
-def query_key_pano(lon=None, lat=None, pid=None, memo={}, logger=logger, *args, **kwargs):
+def query_key_pano(lon=None, lat=None, pid=None, memo={}, logger=None, *args, **kwargs):
     key_panos = []
     respond = query_pano_by_api(lon, lat, pid=pid, logger=logger, memo=memo)
     
@@ -193,7 +196,7 @@ def query_key_pano(lon=None, lat=None, pid=None, memo={}, logger=logger, *args, 
             continue
         
         sorted(road['Panos'], key = lambda x: x['Order'])
-        panos = [road['Panos'][0]['PID'], road['Panos'][-1]['PID']]
+        key_panos = panos = [road['Panos'][0]['PID']] + ([road['Panos'][-1]['PID']] if road['Panos'][0]['PID'] != road['Panos'][-1]['PID'] else [])
         for p in panos:
             if p in memo:
                 continue
@@ -207,37 +210,47 @@ def query_key_pano(lon=None, lat=None, pid=None, memo={}, logger=logger, *args, 
             
             nxt, nxt_record = res['pid'], res['info']
             memo[nxt] = nxt_record
-            key_panos.append(nxt)
+            # key_panos.append(nxt)
 
         break
     
     return key_panos
 
 
-def bfs_panos(pid='09005700121708211337464212S', bbox=None, geom=None, memo={}, max_layer=50, veobose=True):
+def bfs_panos(pid, bbox=None, geom=None, memo={}, max_layer=500, veobose=True, logger=None):
     if bbox is not None:
         geom = box(*bbox)
     assert geom is not None, "Check Input"
     
     layer = 0
     queue = deque([pid])
+    visited = set()
+    
     while queue:
         for _ in range(len(queue)):
             node = queue.popleft()
-            key_panos = query_key_pano(pid=node, memo=memo)
-            logger.debug(f"query_key_pano {pid}: {key_panos}")
+            if node in visited:
+                continue
+            
+            key_panos = query_key_pano(pid=node, memo=memo, logger=logger)
+            if logger is not None:
+                logger.info(f"query_key_pano {pid}: {key_panos}")
 
             # add nxt pid
             for pid in key_panos:
                 if geom is not None and not memo[pid]['geometry'].within(geom):
-                    logger.debug(f"node: {pid} not within the geom")
+                    if logger is not None:
+                        logger.info(f"node: {pid} not within the geom")
                     continue
                 
-                logger.info(f"node: {pid}, links: {[ l['PID'] for l in memo[pid]['Links']]}")
                 for link in memo[pid]['Links']:
                     if link["PID"] in memo:
                         continue
                     queue.append(link["PID"])
+                    if logger is not None:
+                        logger.debug(f"node: {pid}, links: {[ l['PID'] for l in memo[pid]['Links']]}")
+            
+            visited.add(node)
             
         if layer > max_layer:
             break
@@ -246,8 +259,6 @@ def bfs_panos(pid='09005700121708211337464212S', bbox=None, geom=None, memo={}, 
             print(f"{layer}, len({len(queue)}): {queue}")
         
         layer += 1
-        
-    return
 
 
 def get_unvisited_point(panos, bbox=None, geom_wkt=None, buffer_dis=15, plot=True):
@@ -269,22 +280,25 @@ def get_unvisited_point(panos, bbox=None, geom_wkt=None, buffer_dis=15, plot=Tru
     return [ (i[0], i[1]) for i in  res[['x','y']].values.tolist()]
 
 
-def crawl_panos_by_area(bbox=None, geom=None, verbose=True, plot=True):
+def crawl_panos_by_area(bbox=None, geom=None, verbose=True, plot=True, logger=None):
     if bbox is not None:
         geom = box(*bbox)
     assert geom is not None, "Check Input"
     
     pano_dict, visited = {}, set()
     queue = deque(get_unvisited_point(gpd.GeoDataFrame(), geom_wkt=geom.wkt, plot=False))
-
+    print(len(queue))
+    
     while queue:
         node = queue.popleft()
         if node in visited:
             continue
         
-        pid = query_pano_by_api(*node, memo=pano_dict)['pid']
+        pid = query_pano_by_api(*node, memo=pano_dict, logger=logger)['pid']
+        print(node, pid)
+        
         origin_size = len(pano_dict)
-        bfs_panos(pid, geom=geom, memo=pano_dict)
+        bfs_panos(pid, geom=geom, memo=pano_dict, logger=logger)
         visited.add(node)
         
         if len(pano_dict) == origin_size:
@@ -305,12 +319,12 @@ def crawl_panos_by_area(bbox=None, geom=None, verbose=True, plot=True):
     return pano_dict
 
 
-def pano_base_main(project_name, geom=None, bbox=None):
+def pano_base_main(project_name, geom=None, bbox=None, rewrite=False, logger=None):
     fn = os.path.join(CACHE_FOLDER, f"pano_dict_{project_name}.pkl")
-    if os.path.exists(fn):
+    if os.path.exists(fn) and not rewrite:
         pano_dict = saver.read(fn)
     else:
-        pano_dict = crawl_panos_by_area(bbox=bbox, geom=geom)
+        pano_dict = crawl_panos_by_area(bbox=bbox, geom=geom, logger=logger)
         saver.save(pano_dict, fn)
     
     gdf_base = pano_dict_to_gdf(pano_dict)
@@ -328,6 +342,8 @@ def pano_base_main(project_name, geom=None, bbox=None):
 
 #%%
 if __name__ == '__main__':
+    logger = LogHelper(log_name='pano.log', stdOutFlag=False).make_logger(level=logbook.INFO)
+
     """ query key pano check """
     # tmp_dict = {}
     # pid = '09005700121708211232265272S'
@@ -343,8 +359,7 @@ if __name__ == '__main__':
     """ crawl_panos_by_area """
     # szu_geom = gpd.read_file('../cache/SZU_geom.geojson').iloc[0].geometry
     # pano_dict = crawl_panos_by_area(geom = szu_geom)
-    pano_dict = crawl_panos_by_area(bbox=LXD_BBOX)
-    # key_pano_dict = crawl_panos_by_area(box(*PCL_BBOX))
+    pano_dict = crawl_panos_by_area(bbox=FT_BBOX, logger=logger)
 
 
     """ extract data from key panos """
@@ -366,4 +381,25 @@ if __name__ == '__main__':
     """ test_main """
     res = pano_base_main(project_name='lxd', bbox=LXD_BBOX)
     res = pano_base_main(project_name='szu', bbox=SZU_BBOX)
+
+
+    """ test case 0 """
+    # bbox = [114.05014,22.54027, 114.06336,22.54500]
+    # pid = '09005700122003271207598823O'
+
+    pid = '09005700121902141247002492D'
+    bbox = [114.049865,22.549847, 114.05929,22.55306]
+    memo = {}
+
+    bfs_panos(pid, bbox, memo=memo, logger=logger)
+    map_visualize(extract_gdf_roads_from_key_pano(memo))
+
+    bbox = [114.049865,22.549847, 114.05929,22.55306]
+    pano_dict = crawl_panos_by_area(bbox=bbox, logger=logger)
+    map_visualize(extract_gdf_roads_from_key_pano(pano_dict))
+
+
+    """futian 核心城区"""
+    futian_area = gpd.read_file('../cache/福田路网区域.geojson').iloc[0].geometry
+    pano_base_main("futian", bbox=futian_area.bounds, logger=logger, rewrite=False)
 

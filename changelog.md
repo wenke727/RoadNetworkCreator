@@ -12,6 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 
+## [1.1.04] - 2021-09-22
+
+### Added
+
+- `utils.azimuth_helper.py`
+  - `azimuth_cos_similarity_for_linestring` add weight average
+- `pano_img`
+  - `drop_pano_file`
+
+### Changed
+
+- `pano_base.py`
+  - change the logger file
+  - `query_key_pano`, fix the crawl logic to iter all the panos.
+- `utils.azimuth_helper.py`
+  - fix `azimuthAngle`
+  - `azimuth_cos_similarity_for_linestring` add weight average
+
 ## [1.1.03] - 2021-09-09
 
 ### Added

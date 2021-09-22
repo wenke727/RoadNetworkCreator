@@ -1,20 +1,20 @@
 #%%
 import io
 import os
-import requests
 import time
 import random
-import pandas as pd
-import geopandas as gpd
-import multiprocessing
 import logbook
+import requests
+import pandas as pd
+import multiprocessing
+import geopandas as gpd
+from tqdm import tqdm
+from utils.log_helper import LogHelper
 from utils.http_helper import get_proxy
 from utils.minio_helper import MinioHelper
-from utils.log_helper import LogHelper
+from setting import PANO_FOLFER
 
 minio_helper = MinioHelper()
-pano_API_log = LogHelper(log_dir="../log", log_name='panos_base.log').make_logger(level=logbook.INFO)
-
 
 """ origin """
 
@@ -60,8 +60,8 @@ def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
                 # print(order)
                 continue
 
-        fn = f"{pano_dir}/{rid}_{order:02d}_{pid}_{heading}.jpg"
-        res.append(get_staticimage(pid=pid, heading=heading, path=fn, log_helper=log))
+        fn = f"{PANO_FOLFER}/{rid}_{order:02d}_{pid}_{heading}.jpg"
+        res.append(get_staticimage(pid=pid, heading=heading, path=fn, logger=log))
         pre_heading = heading
         
     return res, df_pids
@@ -106,7 +106,20 @@ def query_static_imgs_by_road(name, pano_dir):
 
 """ new API """
 
-def get_staticimage(pid, heading, path=None, log_helper=pano_API_log, sleep=True, proxy='pool'):
+def drop_pano_file(lst, folder=PANO_FOLFER):
+    if isinstance(lst, gpd.GeoDataFrame):
+        lst = lst.apply(lambda x: f"{x.PID}_{x.DIR}.jpg", axis=1).values.tolist()
+    
+    for i in lst:
+        fn = os.path.join(PANO_FOLFER, i)
+        if not os.path.exists(fn):
+            continue
+        os.remove(fn)
+    
+    pass
+
+
+def get_staticimage(pid, heading, path=None, sleep=True, proxy='pool', logger=None,):
     """get static image from Baidu View with `pano id`
 
     Args:
@@ -140,8 +153,8 @@ def get_staticimage(pid, heading, path=None, log_helper=pano_API_log, sleep=True
         else:
             file = requests.get( url, timeout=60, proxies={'http': get_proxy()}  )
             
-        if log_helper is not None: 
-            log_helper.info( f"{pid}: {url}")
+        if logger is not None: 
+            logger.info( f"{pid}: {url}")
         
         if False: 
             __save(file)
@@ -158,8 +171,8 @@ def get_staticimage(pid, heading, path=None, log_helper=pano_API_log, sleep=True
         return path
 
     except:
-        if log_helper is not None: 
-            log_helper.error(f'crawled url failed: {url} ')
+        if logger is not None: 
+            logger.error(f'crawled url failed: {url} ')
         time.sleep( random.uniform(30, 180) )
 
     return None
@@ -175,13 +188,12 @@ def get_staticimage_batch(lst, n_jobs=30, with_bar=True, bar_describe="Crawl pan
     if lst is None:
         return None
     
-    if isinstance(lst, gpd.GeoDataFrame) or isinstance((lst, pd.DataFrame)):
+    if isinstance(lst, gpd.GeoDataFrame) or isinstance(lst, pd.DataFrame):
         lst = lst.reset_index().\
                   rename(columns={"PID": 'pid', 'DIR': 'heading'})[['pid', 'heading']].\
                   to_dict(orient='records')
     
-    from tqdm import tqdm
-    pbar = tqdm(total=len(lst))
+    pbar = tqdm(total=len(lst), desc='get staticimage batch: ')
     if bar_describe is not None:
         pbar.set_description(bar_describe)
     update = lambda *args: pbar.update() if with_bar else None
@@ -197,6 +209,8 @@ def get_staticimage_batch(lst, n_jobs=30, with_bar=True, bar_describe="Crawl pan
 #%%
 
 if __name__ == "__main__":
+    pano_API_log = LogHelper(log_dir="../log", log_name='panos_base.log').make_logger(level=logbook.INFO)
+
     # rid = "7b3a55-bab4-becf-aea3-a9344d"
     # traverse_panos_by_rid(rid)
     # DB_roads = load_DB_roads()

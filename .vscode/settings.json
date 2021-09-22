@@ -1,5 +1,7 @@
 {
     "python.analysis.extraPaths": [
-        "./src"
+        "./src",
+        "/home/pcl/traffic/MatchGPS2OSM/src",
+        "/home/pcl/traffic/map_factory"
     ]
 }

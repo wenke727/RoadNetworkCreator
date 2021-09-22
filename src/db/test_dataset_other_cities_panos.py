@@ -36,7 +36,7 @@ def get_pano_img_by_coord(lon, lat, folder='./shanghai', coord='wgs'):
     pano = panos.iloc[id]
     # fn = f"{pano_dir}/{pano.RID}_{pano.Order:02d}_{pano.PID}_{pano.DIR}.jpg"
     fn = f"{folder}/{pano.RID}_{pano.Order:02d}_{pano.PID}_{pano.DIR}.jpg"
-    fn = get_staticimage( pano.PID, pano.DIR, fn, PANO_log )
+    fn = get_staticimage( pano.PID, pano.DIR, fn, logger=PANO_log )
     
     return fn
 

@@ -10,8 +10,9 @@ __pycache__/
 osm_bbox.osm.xml
 
 # Distribution / packaging
-.DS_Store
 .vscode/
+.DS_Store
+debug/
 cache/
 sumo/osm/
 sumo/osm_baseline/

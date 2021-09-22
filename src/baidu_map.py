@@ -84,7 +84,9 @@ def get_road_shp_by_search_API(road_name, sleep=False):
     if df_roads.query(f"name == '{road_name}' ").shape[0] > 0:
         json_data = eval( df_roads.query(f"name == '{road_name}' ").respond.values[0] )[0]
     else:
-        if sleep: time.sleep(random.triangular(1,15,60))
+        if sleep: 
+            time.sleep(random.triangular(1,15,60))
+        # Ref: "../cache/baidu_road_searching_example.json"
         json_data = _searching_api(road_name, baidu_API_log)
         df_roads  = df_roads.append({'name': road_name, 'respond': [json_data]}, ignore_index=True)
         df_roads[['name', 'respond']].to_csv(fn, index=False)
@@ -105,7 +107,7 @@ def get_road_shp_by_search_API(road_name, sleep=False):
 
 def roads_from_baidu_search_API(fn=os.path.join(input_dir, "road_memo.csv")):
     """ 从`百度地图`中获取路网 """
-    fn = fn=os.path.join(input_dir, "road_memo.csv")
+    fn = os.path.join(input_dir, "road_memo.csv")
     df_roads = pd.read_csv(fn) if os.path.exists(fn) else pd.DataFrame(columns=['name'])
 
     records = df_roads.respond.apply(lambda x: pd.DataFrame(eval(x)[0]['content'] if 'content' in eval(x)[0] else []))
@@ -336,5 +338,22 @@ if __name__ == '__main__':
     roads_futian.query(f"catalogID == 49").name_x.unique()
 
 
+#%%
+futian_area = gpd.read_file('../cache/福田路网区域.geojson').iloc[0].geometry
 
+roads_futian = gpd.clip(roads, futian_area)
 
+map_visualize(roads_futian, scale=.05)
+
+#%%
+road_name = '滨河大道'
+df_, _, _ = get_road_shp_by_search_API(road_name)
+
+map_visualize(df_)
+
+# %%
+road_name = '滨河大道辅道'
+df_, _, _ = get_road_shp_by_search_API(road_name)
+
+map_visualize(df_)
+# %%

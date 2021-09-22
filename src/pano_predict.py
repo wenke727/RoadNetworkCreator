@@ -176,7 +176,7 @@ def update_unpredict_panos(pano_lst, DB_panos, df_memo):
     return pano_lst, df_memo
 
 
-def pred_trajectory(gdf, df_memo, resize_factor=.5, aerial_view=True, combine_view=False, with_lanes=True):
+def pred_trajectory(gdf, df_memo, img_resize_factor=.5, aerial_view=True, combine_view=False, with_lanes=True):
     res = {}
     res['gdf'] = gdf.merge(df_memo[['PID', 'DIR','lane_num','name', 'pred']], on=['PID', 'DIR'])
     fn_lst = res['gdf'].apply(lambda x: os.path.join(PANO_FOLFER, f"{x['name']}"), axis=1).values.tolist()
@@ -185,14 +185,14 @@ def pred_trajectory(gdf, df_memo, resize_factor=.5, aerial_view=True, combine_vi
     if combine_view:
         # TODO: add position; add debug info
         if with_lanes:
-            img_lst = [draw_pred_lanes_on_img(lane_shape_predict(fn, df_memo), fn) for fn in fn_lst if os.path.exists(fn)]
+            img_lst = [draw_pred_lanes_on_img(lane_shape_predict(fn, df_memo), out_path=None) for fn in fn_lst if os.path.exists(fn)]
         else:
             img_lst = [Image.open(fn) for fn in fn_lst if os.path.exists(fn)]
 
         comb_img = combine_imgs(img_lst)
 
         x, y = comb_img.size
-        comb_img = comb_img.resize((int(resize_factor*x), int(resize_factor*y)))
+        comb_img = comb_img.resize((int(img_resize_factor*x), int(img_resize_factor*y)))
 
         res['combine_view'] = comb_img
 
