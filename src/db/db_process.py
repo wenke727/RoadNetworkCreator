@@ -32,6 +32,17 @@ def load_postgis(table, bbox=None, geom_wkt=None, engine=ENGINE):
 
 
 def gdf_to_postgis(gdf, name, engine=ENGINE, if_exists='replace', *args, **kwargs):
+    """Save the GeoDataFrame to the db
+
+    Args:
+        gdf ([type]): [description]
+        name ([type]): [description]
+        engine ([type], optional): [description]. Defaults to ENGINE.
+        if_exists (str, optional): [description]. Defaults to 'replace'.
+
+    Returns:
+        [type]: [description]
+    """
     try:
         gdf.to_postgis( name=name, con=engine, if_exists=if_exists )
         return True
@@ -115,22 +126,6 @@ def store_to_DB(DB_pano_base, DB_panos, DB_connectors, DB_roads):
         print('Store_to_DB failed!')
         return False
 
-
-def save_to_db(df, name, config={"con": ENGINE, 'if_exists':'replace'}, verbose=True):
-    """Save the GeoDataFrame to the db
-
-    Args:
-        df (GeoDataFrame): The dataframe need to be stored in the database.
-        name (str): The table name.
-        db_config (dict, optional): [description]. Defaults to {"con": ENGINE, 'if_exists':'replace'}.
-    """
-    try:
-        df.to_postgis( name=name, **config)
-        return True
-    except:
-        print('save to db failed!')
-        return False
-    
 
 def DB_backup(DB_pano_base, DB_panos, DB_connectors, DB_roads):
     """backup the db in the PostgreSQL

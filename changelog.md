@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 
+## [1.1.05] - 2021-09-22
+
+### Changed
+
+- 完善整体流程
+
 ## [1.1.04] - 2021-09-22
 
 ### Added
@@ -28,7 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `query_key_pano`, fix the crawl logic to iter all the panos.
 - `utils.azimuth_helper.py`
   - fix `azimuthAngle`
-  - `azimuth_cos_similarity_for_linestring` add weight average
 
 ## [1.1.03] - 2021-09-09
 
