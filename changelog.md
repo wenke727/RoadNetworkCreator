@@ -12,6 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 
+## [1.1.06] - 2021-09-29
+
+### Changed
+
+- `main`
+  - 修改遍历逻辑
+  - 基本路网生产框架搭建完毕
+- `panos_topo`
+  - Pano_UnionFind, 用于辅助合并轨迹
+  - get_topo_from_gdf_pano增加 `转向相似度`， `距离惩罚`
+  - bfs: add going bakward control
+
 ## [1.1.05] - 2021-09-22
 
 ### Changed
