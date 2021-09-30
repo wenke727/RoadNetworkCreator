@@ -219,7 +219,7 @@ def get_topo_from_gdf_pano(gdf_base, drop_irr_records=True, std_deviation=20):
         return df
 
     topo = []
-    for lst in tqdm(gdf_base.apply(lambda x: _parse_road_and_links(x), axis=1).values):
+    for lst in tqdm(gdf_base.apply(lambda x: _parse_road_and_links(x), axis=1).values, "Parse road and link: "):
         topo += lst
     df_topo = pd.DataFrame(topo)
     df_topo.drop_duplicates(df_topo.columns, inplace=True)
@@ -246,12 +246,6 @@ def get_topo_from_gdf_pano(gdf_base, drop_irr_records=True, std_deviation=20):
     df_topo.loc[:, 'dist'] = df_topo.apply(lambda x: 
         coords_pair_dist(gdf_base.loc[x.src].geometry, gdf_base.loc[x.dst].geometry), axis=1)
     df_topo.loc[:,'dist_prob'] = df_topo.apply(lambda x: _cal_observ_prob(x.dist), axis=1)
-
-    # df_topo = df_topo.groupby('src').apply(_norm_observ_prob)
-    # df_topo.loc[:, 'turn_smi'] = df_topo.apply(lambda x: _cal_turn_sim(x, True), axis=1)
-    # df_topo.loc[:, 'similarity'] = df_topo.apply(lambda x: x.cos_sim * x.cos_sim * x.dist_prob_std * x.turn_smi, axis=1)
-    # df_topo.loc[~df_topo.link, 'similarity'] = 1
-    # df_topo.sort_values(['src', 'link', 'similarity'], ascending=[True, True, False], inplace=True)
     df_topo = _post_process(df_topo, 'src')
 
     df_topo_prev = df_topo.copy()
@@ -259,11 +253,6 @@ def get_topo_from_gdf_pano(gdf_base, drop_irr_records=True, std_deviation=20):
 
     # inverse the graph
     df_topo_prev = _post_process(df_topo_prev, 'dst')
-    # df_topo_prev = df_topo_prev.groupby('dst').apply(_norm_observ_prob)
-    # df_topo_prev.loc[:, 'turn_smi'] = df_topo_prev.apply(lambda x: _cal_turn_sim(x, True), axis=1)
-    # df_topo_prev.loc[:, 'similarity'] = df_topo_prev.apply(lambda x: x.cos_sim * x.cos_sim * x.dist_prob_std * x.turn_smi, axis=1)
-    # df_topo_prev.loc[~df_topo_prev.link, 'similarity'] = 1
-    # df_topo_prev.sort_values(['dst', 'link', 'similarity'], ascending=[True, True, False], inplace=True)
     df_topo_prev.set_index(['dst', 'src'], inplace=True)
 
     return df_topo, df_topo_prev
@@ -282,7 +271,6 @@ def bfs(node, df_topo, direction=True, visited=set(), plot=False, similar_threds
 
         if logger is not None:
             info = df_topo.loc[cur_pid][['link','cos_sim', 'dist_prob_std','similarity']].reset_index()
-            # logger.debug(f"{cur_pid}, {'forword' if direction else 'backward'}: {df_topo.loc[cur_pid].index.values.tolist()}")
             logger.debug(f"{cur_pid}, {'forword' if direction else 'backward'}:\n {info}")
         
         for nxt_pid, nxt in df_topo.loc[cur_pid].iterrows():
@@ -327,12 +315,11 @@ def bidirection_bfs(pid, df_topo, df_topo_prev, visited=set(), similar_threds=.7
     Returns:
         [type]: [description]
     """
-    # assert pid in df_topo.index, f"check the pid input: {pid}"
-    
     if pid not in df_topo.index and pid not in df_topo_prev.index:
         if logger is not None:
             logger.warning(f"{pid} not in df_topo")
         return []
+
     params = {'visited':visited, "plot":False, 'logger':logger, 'similar_threds':similar_threds}
     rids_0 = bfs(pid, df_topo_prev, False, **params)
     rids_1 = bfs(pid, df_topo, True, **params)
@@ -407,90 +394,6 @@ def combine_rids(gdf_base, gdf_roads, gdf_panos, plot=True, logger=None):
     return uf, df_topo, df_topo_prev
 
 
-def check():
-    """排查rid_2_start 存在重复的情况
-    """
-    traj_rid_lst, rid_2_start = combine_rids(gdf_base, gdf_roads, gdf_panos, plot=False, logger=logger)
-
-    res = []
-    for key, values in rid_2_start.items():
-        res.append([key, len(values)])
-
-    df = pd.DataFrame(res, columns=['rid', 'count'])
-    df
-    
-
-    from shapely.geometry import box
-    from db.db_process import load_postgis
-    # 查找滨河大道附近的异常panos
-    load_postgis('panos', bbox=[114.04324,22.53019, 114.06536,22.53252]).merge(df.query("count==2").rename(columns={"rid": 'RID'}), on='RID').PID.values
-
-
-    get_trajectory_by_rid('4cc13f-468c-8049-6887-330485',  rid_2_start, traj_rid_lst, gdf_roads, plot=True)
-    # rid = '4cc13f-468c-8049-6887-330485'
-    # rid = 'bc29f2-4297-05ec-65d3-3ce34d'
-    # rid = '87b4e3-911e-ab69-ac1b-94c6bf'
-    rid = 'dbd173-a935-fbae-831d-580031'
-
-    for i in get_trajectory_by_rid(rid,  rid_2_start, traj_rid_lst, gdf_roads, plot=False):
-        print(i, rid_2_start[i])
-
-    # FIXME 主要原因是起点和终点是同一个的visited的情况没有考虑
-
-
-    #check_for_topo():
-    # ! 检查 滨河大道-彩田路 北行匝道的匹配情况
-    traj_rid_lst, rid_2_start = combine_rids(gdf_base, gdf_roads, gdf_panos, plot=False, logger=logger)
-
-    rid = 'f4a001-a43c-a68e-bdda-2f28ae'
-    uf.get_traj(rid, plot=True)
-    # get_trajectory_by_rid(rid,  rid_2_start, traj_rid_lst, gdf_roads, plot=True)
-
-
-    rid = 'ec2572-2d9f-05a5-aabf-a822bc'
-    uf.get_traj(rid, plot=True)
-    # get_trajectory_by_rid(rid,  rid_2_start, traj_rid_lst, gdf_roads, plot=True)
-
-    plot_node_connections('09005700122003221315202213O', df_topo, scale=2)
-
-
-    # FIXME add distance factor
-
-    # df_topo = df_topo.reset_index()
-
-    df_topo.loc[:, 'dist'] = df_topo.apply(lambda x: coords_pair_dist(gdf_panos.loc[x.src].geometry, gdf_panos.loc[x.dst].geometry), axis=1)
-    df_topo.apply( lambda x: helper(x.dist), axis=1)
-    df_topo.groupby('src').dist.apply(max).loc['01005700001311170922484885Y']
-    df = df_topo.query("src=='01005700001311170922484885Y'")
-    df_topo.query("src=='09005700122003221315202213O'")
-
-
-def check_shennanRoad():
-    # ! Check 深南大道 
-    logger = LogHelper(log_dir="../log", log_name='pano_topo.log', stdOutFlag=False).make_logger(level=logbook.DEBUG)
-
-    pid = '09005700122003271451259693O'
-    uf.get_traj(pid=pid) 
-
-    plot_node_connections(pid, df_topo, scale=2)
-
-    pid = '09005700122003271208195303O'
-    pid = '09005700122003221307463933O' # 滨河大道辅路西行
-    bidirection_bfs(pid, df_topo, df_topo_prev, visited=set(), similar_threds=.8, plot=True, logger=logger)
-
-    pid = '09005700122003271208310663O'
-    plot_node_connections('09005700122003271208310663O', df_topo)
-
-    df_trajs = uf.trajs_to_gdf()
-    # gdf_to_postgis(df_trajs, 'test_combine_rids')
-    # ! 修正 df_topo 中相似度
-
-    pid = '09005700122003271208461303O'
-    plot_node_connections(pid, df_topo, scale=2)
-
-    df_topo_prev.loc[pid]
-    plot_node_connections(pid, df_topo, scale=2)
-
 
 #%%
 if __name__ == '__main__':
@@ -507,7 +410,7 @@ if __name__ == '__main__':
     """" combine rids """
     uf, df_topo, df_topo_prev = combine_rids(gdf_base, gdf_roads, gdf_panos, plot=False, logger=logger)
     df_trajs = uf.trajs_to_gdf()
-    # gdf_to_postgis(df_trajs, 'test_combine_rids')
+    gdf_to_postgis(df_trajs, 'test_topo_futian')
 
     
     """ query edge by node """
@@ -543,19 +446,19 @@ if __name__ == '__main__':
     # get_trajectory_by_rid("988acb-1732-52e3-a58a-36eec3", rid_2_start, traj_rid_lst, gdf_roads)
     # futian 
     rid = '550a27-40c5-f0d3-5717-a1907d' # 金田路福田地铁站附近
-    uf.get_traj(rid, True)
+    uf.get_traj(rid, plot=True)
 
     rid = 'edbf2d-e2f3-703f-4b9f-9d6819' # 深南大道-市民中心-东行掉头
-    uf.get_traj(rid, True)
+    uf.get_traj(rid, plot=True)
 
     rid = 'd51f52-4ab6-cba6-dc4f-2fdf73' # 深南大道/益田路立交-东侧
-    uf.get_traj(rid, True)
+    uf.get_traj(rid, plot=True)
 
     rid = '514cba-89ea-b8d6-3de2-15f9ac' # 深南大道/益田路立交-西侧
-    uf.get_traj(rid, True)
+    uf.get_traj(rid, plot=True)
 
     rid = '113422-7515-f096-fb9f-ec2bce'
-    uf.get_traj(rid, True)
+    uf.get_traj(rid, plot=True)
 
     bidirection_bfs('09005700122003221437282513O', df_topo, df_topo_prev, set(), .7, True, logger=logger) # 特殊案例
     

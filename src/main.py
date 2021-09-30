@@ -21,11 +21,12 @@ from pano_predict import pred_trajectory, PRED_MEMO, update_unpredict_panos
 from utils.log_helper import LogHelper, logbook
 from utils.geo_plot_helper import map_visualize
 from utils.df_helper import load_df_memo, query_df
+from utils.interval_helper import merge_intervals_lst
 from db.db_process import gdf_to_postgis, save_to_geojson
 
 sys.path.append("/home/pcl/traffic/MatchGPS2OSM/src")
 from matching import st_matching, cal_relative_offset
-from DigraphOSM import Digraph_OSM, load_net_helper, gdf_to_geojson
+from DigraphOSM import Digraph_OSM, load_net_helper
 
 HMM_FOLDER = "/home/pcl/traffic/MatchGPS2OSM/input"
 logger = LogHelper(log_name='main.log').make_logger(level=logbook.INFO)
@@ -112,30 +113,14 @@ def get_pano_topo_by_road_level(net, gdf_base, gdf_panos, road_type='primary', d
     Returns:
         [type]: [description]
     """
-    gdf_roads_levels, df_edges = filter_panos_by_road_type(net, road_type, filter_sql=filter_sql, clip_geom=clip_geom, dis=dis)
-    pids = np.unique(
-                gdf_roads_levels[road_type].src.tolist() + \
-                gdf_roads_levels[road_type].dst.tolist()
-            ).tolist()
-    uf, df_topo, df_topo_prev = combine_rids(gdf_base.loc[pids], gdf_roads_levels[road_type], gdf_panos, plot=True, logger=logger)
+    roads_levels, df_edges = filter_panos_by_road_type(net, road_type, filter_sql=filter_sql, clip_geom=clip_geom, dis=dis)
+    pids = np.unique(roads_levels[road_type].src.tolist() + roads_levels[road_type].dst.tolist()).tolist()
+    uf, df_topo, df_topo_prev = combine_rids(gdf_base.loc[pids], roads_levels[road_type], gdf_panos, plot=True, logger=logger)
 
     df_trajs = uf.trajs_to_gdf()
 
     return df_trajs, uf, df_edges
 
-
-def merge_intervals(intervals):
-    # intervals = [ [i[0], i[1]] for i in intervals ]
-    intervals = sorted(intervals)
-    result = []
-
-    for interval in intervals:
-        if len(result) == 0 or result[-1][1] < interval[0]:
-            result.append(interval)
-        else:
-            result[-1][1] = max(result[-1][1], interval[1])
-            
-    return result
 
 
 #%%
@@ -165,8 +150,6 @@ def plot_neighbor_rids_of_edge(eid, df_edges_unvisted, dis_buffer=25):
         eid ([type]): [description]
         df_edges_unvisted ([type]): [description]
     """
-    # 测试 sjoin的功能, 发现主要引发bug的地方是 道路被切了
-   
     road_mask = gpd.GeoDataFrame({'eid': eid, 'geometry': df_edges_unvisted.query(f'eid=={eid}').buffer(dis_buffer*DIS_FACTOR)})
     tmp = gpd.sjoin(gdf_roads, road_mask, op='intersects')
     tmp.reset_index(inplace=True)
@@ -197,12 +180,12 @@ def cal_coverage_helper(df, coverage_thred=.6, format='dataframe'):
     df_.loc[:, 'intervals'] = df_.apply(breakpoint_to_interval, axis=1)
     # TODO 针对起点和终点都是同一个路段的情况，区间会有错误，如：49691
     if df_.shape[0] == 2 and df_.eid.nunique() == 1:
-        df_.iloc[:, ]['intervals'] = [[df_.iloc[0].intervals[0], df_.iloc[1].intervals[1]], [0, 0]]
+        df_.iloc[:, 'intervals'] = [[df_.iloc[0].intervals[0], df_.iloc[1].intervals[1]], [0, 0]]
     
     df_ = pd.DataFrame(
             df_[['eid', 'intervals']].groupby(['eid']).intervals.apply(lambda x: sorted(list(x)))
         ).sort_values('intervals')
-    df_.loc[:, 'intervals_merged'] = df_.intervals.apply(merge_intervals)
+    df_.loc[:, 'intervals_merged'] = df_.intervals.apply(merge_intervals_lst)
     df_.loc[:, 'percentage'] = df_.intervals_merged.apply(lambda x: sum( [ i[1]-i[0] for i in x ]))
     df_.loc[:, 'visited'] = df_.percentage.apply(lambda x: True if x > coverage_thred else False)
     df_.sort_values('percentage', inplace=True)
@@ -225,12 +208,12 @@ def get_unvisited_edge(edges, MATCHING_MEMO, plot=True):
 
 
 def get_unvisited_edge_related_rids(df_edges_unvisted, gdf_roads, dis_buffer=25):
-    # TODO add cos similarity
     road_mask = gpd.GeoDataFrame({
         'eid': df_edges_unvisted['eid'].values, 
         'geometry':df_edges_unvisted.buffer(dis_buffer*DIS_FACTOR)}
     )
     related_rids = gpd.sjoin(gdf_roads, road_mask, op='intersects', )
+    # TODO add cos similarity to filter records
 
     return related_rids
 
@@ -243,10 +226,10 @@ def map_pid_to_edge(pids, route, pid_to_edge, edge_to_pid ):
         pids ([type]): [description]
         route ([type]): [description]
     """
-
     pids.loc[:, 'closest_eid'] = pids.apply(lambda x: route.loc[route.distance(x.geometry).idxmin()].eid , axis=1)
 
     for i, item in pids.iterrows():
+        # TODO add att: `traj ID`
         edge_to_pid[item['closest_eid']] = edge_to_pid.get(item['closest_eid'], [])
         if item['PID'] not in edge_to_pid[item['closest_eid']]:
             edge_to_pid[item['closest_eid']].append(item['PID'])
@@ -265,12 +248,10 @@ def sort_pids_in_edge(edge_to_pid, df_pred_memo=None, plot=True):
         lambda x: cal_relative_offset(gdf_panos.loc[x.pid].geometry, net.df_edges.loc[x.name].geom_origin)[0] / net.df_edges.loc[x.name].dist, 
         axis=1
     )
-
-    # df_mapping.drop_duplicates(['eid', 'pid'], inplace=True)
     df_mapping = df_mapping.reset_index().rename(columns={'index': 'eid'}).sort_values(['eid', 'offset'])
     
     if df_pred_memo is not None:
-        df_mapping = df_mapping.merge(df_pred_memo[['PID', 'lane_num']], left_on='pid', right_on='PID').drop(columns='PID')
+        df_mapping = df_mapping.merge(df_pred_memo[['PID', 'lane_num']].rename(columns={"PID": 'pid'}), on='pid')
 
     if plot:
         map_visualize( gdf_panos.loc[ df_mapping.pid] )
@@ -296,19 +277,18 @@ def pids_filter(points, outlier_filter=True, mul_factor=2):
             points.loc[:, 'outlier'] = False
             return points
 
-        # panos.reset_index(drop=True)
         median = int(np.median(points.lane_num))
         remain_ponas_index = np.sort(points.index)[trim_nums: -trim_nums] if trim_nums != 0 else np.sort(points.index)
 
-        tmp = points[['offset','lane_num']]
+        tmp  = points[['offset','lane_num']]
         prev = points.lane_num.shift(-1) == points.lane_num
-        nxt = points.lane_num.shift(1) == points.lane_num
+        nxt  = points.lane_num.shift(1) == points.lane_num
         not_continuous = tmp[(prev|nxt) == False].offset.values.tolist()
         
+        # FIXME 此处条件需要更改，特别是误差在2范围内的合理性
         idxs = points.query( f"not (offset not in {not_continuous} \
                         and index in @remain_ponas_index \
-                        and abs(lane_num - @median) < 2)", 
-                        # inplace=True 
+                        and abs(lane_num - @median) <= 2)", 
                     ).index.tolist()
         logger.debug(f"Outlier index: {idxs}")
         points.loc[idxs, 'outlier'] = True
@@ -336,80 +316,6 @@ def pids_filter(points, outlier_filter=True, mul_factor=2):
     return points
 
 
-def mathicng_for_level(df_trajs, traj_uf, top_percentage=.1, coverage_thred=.6, debug=True):
-    for id in tqdm(range(math.ceil(df_trajs.shape[0]*top_percentage))):
-        if debug:
-            save_fn = os.path.join( "../debug/matching", f"{id}_{df_trajs.iloc[id].name}.jpg")
-            path = st_matching(df_trajs.iloc[id].pids_df, net, plot=True, satellite=True, save_fn=save_fn)
-        else:
-            path = st_matching(df_trajs.iloc[id].pids_df, net, plot=False, satellite=False)
-        ST_MATCHING_DICT[df_trajs.iloc[id].name] = path['path']
-        map_pid_to_edge(df_trajs.iloc[id].pids_df, path['path'], PID_TO_EDGE, EDGE_TO_PID)
-        
-        for rid in df_trajs.iloc[id].rids:
-            PANO_RID_VISITED.add(rid)
-
-    MATCHING_MEMO = gpd.GeoDataFrame(pd.concat(ST_MATCHING_DICT.values()))
-    coverage_dict = cal_coverage_helper(MATCHING_MEMO, format='dict')
-
-    # deal with the unmatching edge
-    df_edges_unvisted = get_unvisited_edge(edges, MATCHING_MEMO)
-    related_rids = get_unvisited_edge_related_rids(df_edges_unvisted, gdf_roads)
-    lst = df_edges_unvisted.eid.unique()
-    eid_visited = set()
-
-    for idx in range(len(lst)):
-        queue = related_rids.query(f'eid=={lst[idx]}').apply(lambda x: rid_heap_helper(x, net), axis=1).values.tolist()
-        if len(queue) == 0:
-            continue
-        
-        heapq.heapify(queue)
-        # plot_neighbor_rids_of_edge(lst[idx], df_edges_unvisted)
-
-        while queue:
-            _, eid, rid = heapq.heappop(queue) 
-            if eid in eid_visited:
-                continue
-            
-            ori_coverage = coverage_dict.get(eid, None) 
-            if ori_coverage is not None and ori_coverage['percentage'] > coverage_thred:
-                continue
-            
-            print(f"{eid}: {ori_coverage['percentage'] if ori_coverage is not None else ''}, {rid}")
-
-            save_fn = os.path.join( "../debug/matching", f"{eid}_{rid}.jpg")
-            
-            traj = traj_uf.get_panos(rid, False)
-            res  = st_matching(traj, net, name=str(id), plot=True, satellite=True, debug_in_levels=False, save_fn=save_fn, top_k=5, georadius=50, logger=logger)
-            # res  = st_matching(traj, net, name=str(id), plot=False, top_k=5, georadius=50, logger=logger)
-
-            edge_related_new = net.df_edges.loc[[eid]][['eid']].merge(res['path'], on=['eid'])
-            edge_related_old = net.df_edges.loc[[eid]][['eid']].merge(MATCHING_MEMO, on=['eid'])
-            edge_related = pd.concat([edge_related_new, edge_related_old])
-            if edge_related.shape[0] == 0:
-                continue
-
-            coverage_dict[eid] = cal_coverage_helper(edge_related, format='dict')[eid]
-            new_coverage = coverage_dict[eid]['percentage']
-
-            if ori_coverage is not None and new_coverage == ori_coverage['percentage']:
-                continue
-            
-            print(f'\t new_coverage: {new_coverage}')
-            
-            ST_MATCHING_DICT[rid] = res['path']
-            map_pid_to_edge(traj, res['path'], PID_TO_EDGE, EDGE_TO_PID)
-            MATCHING_MEMO = pd.concat([MATCHING_MEMO, res['path']])
-
-            if new_coverage > coverage_thred:
-                eid_visited.add(eid)
-                print(f'add {eid}')
-                
-                break
-        else:
-            print(f"can't meet the demand")
-            
-
 def find_prev_edge(item, net, logger=None):
     res = gpd.GeoDataFrame()
     if item.order != 0:
@@ -428,7 +334,8 @@ def find_prev_edge(item, net, logger=None):
             else:
                 if logger is not None:
                     logger.error(f"check {item.eid}")
-                return None
+                raise 
+                # return None
         
     return res.iloc[0].eid
 
@@ -450,12 +357,13 @@ def find_nxt_edge(item, net, logger=None):
             else:
                 if logger is not None:
                     logger.error(f"check {item.eid}")
-                return None
+                raise
+                # return None
         
     return res.iloc[0].eid
 
 
-def handle_missing_lane_record(edge_miss, edges, top_k=1):
+def handle_missing_lane_record(edge_miss, edges, df_pid_2_edge, top_k=1):
     """Process the records without lane_num data
 
     Args:
@@ -545,12 +453,12 @@ map_visualize( pano_base_res['gdf_roads'], scale=.01 )
 # road_name = '红荔路' 
 # road_name = '滨河大道' 
 road_name = '滨河大道辅路' 
-road_name = '益田路' 
-road_name = '福华路'
+# road_name = '益田路' 
+# road_name = '福华路'
 
 # roadtype = 'trunk', primary, secondary
 
-df_trajs, traj_uf, edges = get_pano_topo_by_road_level(net, gdf_base, gdf_panos, 'secondary', filter_sql=f"name == '{road_name}'", clip_geom=futian_area)
+df_trajs, traj_uf, edges = get_pano_topo_by_road_level(net, gdf_base, gdf_panos, 'primary', filter_sql=f"name == '{road_name}'", clip_geom=futian_area)
 
 # gdf_to_postgis( gpd.GeoDataFrame(df_trajs).drop(columns='pids_df'), 'test_topo_combine' )
 # rid = 'e500bb-bfe5-17ae-b949-fc8d2a'

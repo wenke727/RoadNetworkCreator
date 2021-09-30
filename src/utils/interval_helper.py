@@ -1,3 +1,15 @@
+def merge_intervals_lst(intervals):
+    intervals = sorted(intervals)
+    result = []
+
+    for interval in intervals:
+        if len(result) == 0 or result[-1][1] < interval[0]:
+            result.append(interval)
+        else:
+            result[-1][1] = max(result[-1][1], interval[1])
+            
+    return result
+    
 
 def merge_intervals(intervals):
     res = []
