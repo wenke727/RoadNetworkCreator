@@ -15,14 +15,14 @@ from shapely.geometry import point, LineString
 from pano_base import pano_base_main
 from pano_img import get_staticimage_batch
 from panos_topo import combine_rids, Pano_UnionFind
-from setting import CACHE_FOLDER, DIS_FACTOR, LXD_BBOX, SZU_BBOX, SZ_BBOX, FT_BBOX
 from pano_predict import pred_trajectory, PRED_MEMO, update_unpredict_panos
+from setting import CACHE_FOLDER, DIS_FACTOR, LXD_BBOX, SZU_BBOX, SZ_BBOX, FT_BBOX
 
 from utils.log_helper import LogHelper, logbook
 from utils.geo_plot_helper import map_visualize
 from utils.df_helper import load_df_memo, query_df, gdf_concat
 from utils.interval_helper import merge_intervals_lst
-from db.db_process import gdf_to_postgis, save_to_geojson
+from db.db_process import gdf_to_postgis, gdf_to_geojson
 
 sys.path.append("/home/pcl/traffic/MatchGPS2OSM/src")
 from matching import st_matching, cal_relative_offset
@@ -34,11 +34,15 @@ logger = LogHelper(log_name='main.log').make_logger(level=logbook.INFO)
 pd.set_option('display.max_rows', 100)
 
 
+df_pred_memo = load_df_memo(PRED_MEMO)
+
 #%%
 
-def filter_panos_by_road_type(net, road_type='primary', dis=35, filter_sql=None, clip_geom=None):
+def filter_panos_by_road_type(net, road_name=None, road_type='primary', dis=35, filter_sql=None, clip_geom=None):
     df_edges = net.df_edges.copy()
-    if road_type is not None:
+    if road_name is not None:
+        df_edges = df_edges.query("name == @road_name")
+    if road_name is None and road_type is not None:
         df_edges = df_edges.query("road_type == @road_type")
     if filter_sql is not None:
         df_edges.query(filter_sql, inplace=True)
@@ -46,55 +50,17 @@ def filter_panos_by_road_type(net, road_type='primary', dis=35, filter_sql=None,
         df_edges = df_edges.loc[ gpd.clip(df_edges, clip_geom).index ]
         
     roads_levles = {}
-    roads_levles[road_type] = df_edges
-    road_mask = gpd.GeoDataFrame(roads_levles[road_type].buffer(dis*DIS_FACTOR), columns=['geometry'])
-    road_mask.loc[:, 'road_type'] = road_type
-    mask = road_mask.dissolve('road_type')
+    road_mask = gpd.GeoDataFrame(df_edges.buffer(dis*DIS_FACTOR), columns=['geometry'])
+    road_mask.loc[:, 'att'] = road_name if road_name is not None else road_type
+    mask = road_mask.dissolve('att')
 
     tmp_indexes = gpd.clip(gdf_roads, mask.iloc[0].geometry, keep_geom_type=True).index
-    roads_levles[road_type] = gdf_roads.loc[tmp_indexes]
+    # roads_levles[road_type] = gdf_roads.loc[tmp_indexes]
     
-    return roads_levles, df_edges
+    return gdf_roads.loc[tmp_indexes], df_edges
 
 
-def check_all_traj(traj_lst):
-    err_lst = [] 
-
-    for id in tqdm(range(0, 200)):
-        try:
-            rid = traj_lst[id]
-
-            save_fn = os.path.join( "../debug/matching", f"{id:03d}_{rid}.jpg")
-            rids     = get_trajectory_by_rid(rid, rid_2_start, traj_rid_lst, gdf_roads, plot=False)
-            traj     = get_panos_by_rids(rids, gdf_roads, gdf_panos, plot=False)
-            pred_res = pred_trajectory(traj, df_pred_memo, aerial_view=False, combine_view=False, with_lanes=True)
-
-            path     = st_matching(traj, net, plot=True, satellite=True, debug_in_levels=False, save_fn=save_fn)
-        except:
-            err_lst.append(id)
-    
-    return
-
-
-def check_single_traj(id, traj_lst):
-    rid = traj_lst[id]
-
-    save_fn = os.path.join( "../debug/matching", f"{id:03d}_{rid}.jpg")
-    rids     = get_trajectory_by_rid(rid, rid_2_start, traj_rid_lst, gdf_roads, plot=False)
-    traj     = get_panos_by_rids(rids, gdf_roads, gdf_panos, plot=False)
-    pred_res = pred_trajectory(traj, df_pred_memo, aerial_view=True, combine_view=True, with_lanes=True)
-
-    pred_res['gdf']
-    pred_res['combine_view']
-
-
-    res      = st_matching(traj, net, name=str(id), plot=True, satellite=True, debug_in_levels=False, save_fn=None, top_k=5, georadius=50, logger=logger)
-    res['rList']
-    
-    return pred_res, res
-
-
-def get_pano_topo_by_road_level(net, gdf_base, gdf_panos, road_type='primary', dis=35, filter_sql=None, clip_geom=None):
+def get_pano_topo_by_road_level(net, gdf_base, gdf_panos, road_name=None, road_type='primary', dis=35, filter_sql=None, clip_geom=None):
     """get pano topo by level/sql/geom.
 
     Args:
@@ -107,14 +73,13 @@ def get_pano_topo_by_road_level(net, gdf_base, gdf_panos, road_type='primary', d
     Returns:
         [type]: [description]
     """
-    roads_levels, df_edges = filter_panos_by_road_type(net, road_type, filter_sql=filter_sql, clip_geom=clip_geom, dis=dis)
-    pids = np.unique(roads_levels[road_type].src.tolist() + roads_levels[road_type].dst.tolist()).tolist()
-    uf, df_topo, df_topo_prev = combine_rids(gdf_base.loc[pids], roads_levels[road_type], gdf_panos, plot=True, logger=logger)
+    roads_levels, df_edges = filter_panos_by_road_type(net, road_name, road_type, filter_sql=filter_sql, clip_geom=clip_geom, dis=dis)
+    pids = np.unique(roads_levels.src.tolist() + roads_levels.dst.tolist()).tolist()
+    uf, df_topo, df_topo_prev = combine_rids(gdf_base.loc[pids], roads_levels, gdf_panos, plot=True, logger=logger)
 
     df_trajs = uf.trajs_to_gdf()
 
     return df_trajs, uf, df_edges
-
 
 
 #%%
@@ -131,8 +96,10 @@ def breakpoint_to_interval(item):
     """
     if item.step == 1:
         return [0, 1]
+    
     if item.step == 0:
         return [item.breakpoint, 1]
+    
     if item.step == -1:
         return [0, item.breakpoint]
 
@@ -314,16 +281,16 @@ def pids_filter(points, outlier_filter=True, mul_factor=2):
     
     points.query('lane_num>0', inplace=True)
     
-    # logger.info(f"\n{points}")
     points = points.groupby('eid').apply( _panos_outlier )
-    # logger.info(f"\n{points}")
     points = points.groupby('eid').apply( _panos_filter )
-    # logger.info(f"\n{points}")
     
     return points.append(points_none_pred)
 
 
 def find_prev_edge(item, net, logger=None):
+    if isinstance(item, int):
+        item = net.df_edges.loc[item]
+        
     res = gpd.GeoDataFrame()
     if item.order != 0:
         mid = net.df_edges.query(f"rid=={item.rid}")
@@ -351,6 +318,9 @@ def find_prev_edge(item, net, logger=None):
 
 
 def find_nxt_edge(item, net, logger=None):
+    if isinstance(item, int):
+        item = net.df_edges.loc[item]
+        
     res = gpd.GeoDataFrame()
     mid = net.df_edges.query(f"rid=={item.rid}")
     order_lst = sorted(mid.order.values.tolist())
@@ -423,85 +393,7 @@ def handle_missing_lane_record(edge_miss, edges, df_pid_2_edge, prev_top_k=2, nx
 
 
 #%%
-if __name__ == '__main__':
-    # # DEBUG 
-    # save_to_geojson(traj, os.path.join(HMM_FOLDER, "traj_debug_case2.geojson"))
-
-    # #%%
-    # # rid = '550a27-40c5-f0d3-5717-a1907d' # 金田路福田地铁站附近
-    # # rid = 'edbf2d-e2f3-703f-4b9f-9d6819' # 深南大道-市民中心-东行掉头
-    # # rid = 'cb7422-27d2-c73b-b682-a12ebd' # 深南大道辅道-市民中心段-东行
-    # # rid = '24fd43-b288-813c-b717-c8f6f8' # 深南大道西行
-
-
-    # check_single_traj(4, traj_lst)
-
-
-    # """ debug in levels """
-    # res = st_matching(traj, net, plot=True, satellite=True, debug_in_levels=True, save_fn=None, top_k=5)
-
-    # # traj = traj.sort_index(ascending=False).reset_index(drop=True)
-
-    # """ save to db """
-    # # gdf_to_postgis(gdf_roads, 'test_all')
-    # gdf_to_postgis(roads_levles[road_type], 'test_primary')
-    # gdf_to_postgis(mask, 'test_mask_primary')
-    pass
-
-
-df_pred_memo = load_df_memo(PRED_MEMO)
-
-"""step 1: download OSM data"""
-# FT_BBOX  = [114.02874162861015, 22.52426853077481, 114.06680715668308, 22.56334823810368]
-net = load_net_helper(bbox=SZ_BBOX, combine_link=True, reverse_edge=True, two_way_offeset=True, cache_folder='../../MatchGPS2OSM/cache')
-
-"""step 2: dowload pano topo"""
-futian_area = gpd.read_file('../cache/福田路网区域.geojson').iloc[0].geometry
-pano_base_res = pano_base_main(project_name='futian', geom=futian_area)
-gdf_base  = pano_base_res['gdf_base']
-gdf_roads = pano_base_res['gdf_roads']
-gdf_panos = pano_base_res['gdf_panos']
-
-map_visualize( pano_base_res['gdf_roads'], scale=.01 )
-
-"""step 3: download pano imgs and predict"""
-# pano_img_res = get_staticimage_batch(pano_base_res['gdf_panos'], 50, True)
-gdf_panos = gdf_panos.merge( df_pred_memo[['PID', "DIR", 'lane_num']], on=['PID', "DIR"], how='left').set_index('PID')
-# TODO panos预测所有的情况
-
-
-#%%
-""" initialize """
-road_name_lst = ['滨河大道辅路', '深南大道', '红荔路', '滨河大道', '益田路', '福华路', '福中路']
-road_type_lst = [None,'trunk', 'primary', 'secondary']
-
-road_name = road_name_lst[5]
-road_type = road_type_lst[3]
-df_trajs, traj_uf, edges = get_pano_topo_by_road_level(net, gdf_base, gdf_panos, road_type, filter_sql=f"name == '{road_name}'", clip_geom=futian_area)
-
-# upload to db for debug
-# gdf_to_postgis( gpd.GeoDataFrame(df_trajs).drop(columns='pids_df'), 'test_topo_combine' )
-
-# for test
-# rid = 'e500bb-bfe5-17ae-b949-fc8d2a'
-# traj_uf.get_traj(rid, plot=True)
-
-"""
-特殊情况：
-滨河大道辅路, 44690: 因道路边界的切割，导致该路段无法满足要求
-"""
-
-#%%
-# ! new traverse road framework
-coverage_dict = {}
-eid_visited = set()
-MATCHING_MEMO = gpd.GeoDataFrame(columns=['eid'])
-ST_MATCHING_DICT = {}
-PID_TO_EDGE = {}
-EDGE_TO_PID = {}
-
-
-def identify_edge_type(id, net=net, dis_thres=30):
+def identify_edge_type(id, net, dis_thres=30):
     """通过规则识别路段的类型：交叉口等候区域，路口连接线
 
         # 普通路段
@@ -541,6 +433,9 @@ def identify_edge_type(id, net=net, dis_thres=30):
         return 4
 
     path = net.a_star(edge.e, edge.s)
+    if path is None or path['path'] is None:
+        return 0
+    
     if len(path['path']) == 2 and edge.dist < dis_thres and path['cost'] < dis_thres*2:
         return 1
     
@@ -651,12 +546,12 @@ def matching_edge_helper(queue, coverage_thred=.7, logger=None):
     pass
 
 
-def traverse_edges(edges, pano_roads, coverage_thred=.7, plot_candidates_rids=False, logger=None):
+def traverse_edges(edges, gdf_roads, coverage_thred=.7, plot_candidates_rids=False, logger=None):
     """traverse edges
 
     Args:
         edges ([type]): [description]
-        pano_roads ([type]): [description]
+        gdf_roads ([type]): [description]
         coverage_thred (float, optional): [description]. Defaults to .7.
         plot_candidates_rids (bool, optional): [description]. Defaults to False.
         logger ([type], optional): [description]. Defaults to None.
@@ -681,11 +576,12 @@ def traverse_edges(edges, pano_roads, coverage_thred=.7, plot_candidates_rids=Fa
         return record
 
     eids_lst = edges.eid.unique().tolist()
-    related_rids = get_related_rids_by_edge_buffer(edges, pano_roads)
+    # eids_lst = [77467]
+    related_rids = get_related_rids_by_edge_buffer(edges, gdf_roads)
 
     for idx in range(len(eids_lst)):
         queue = related_rids.query(f'eid=={eids_lst[idx]}').\
-                             apply(lambda x: _rid_heap_helper(x, net), axis=1).values.tolist()
+                             apply(lambda x: _rid_heap_helper(x, net), axis=1).sort_values().values.tolist()
         if len(queue) == 0 or eids_lst[idx] in eid_visited:
             continue
 
@@ -697,10 +593,6 @@ def traverse_edges(edges, pano_roads, coverage_thred=.7, plot_candidates_rids=Fa
             
         matching_edge_helper(queue, coverage_thred=coverage_thred, logger=logger)
 
-
-edges.loc[:, 'edge_type'] = edges.eid.apply(identify_edge_type)
-
-traverse_edges(edges, gdf_roads, logger=logger)
 
 #%%
 
@@ -737,12 +629,23 @@ def _get_lst_mode(lst, offset=1):
     return res[0][0] - offset if res[0][0] != 0 else None
 
 
-def _indentify_lane_num_for_type_3(item, lst_name='lane_set', net=net):
-    lane_mode = _get_lst_mode(item[lst_name])
-    if lane_mode is None:
-        return edges.loc[find_prev_edge(item.eid, net)].lane_num
+def _indentify_lane_num_for_type_3(edges_, idxs, df_pid_2_edge, net, lst_name='lane_set',  logger=None):
+    def helper(item):
+        if len(item[lst_name]) == 0:
+            return None
+        
+        lane_mode = _get_lst_mode(item[lst_name])
+        if lane_mode is None:
+            prev_eid = find_prev_edge(item, net)
+            if logger is not None:
+                logger.info(f"edge: {item.eid}, lane_num {lane_mode} (type 3) refered to the previous edge {prev_eid}")
+            lane_mode = edges_.loc[prev_eid].lane_num
+                
+            return lane_mode
     
-    return lane_mode
+        return lane_mode
+    
+    return _get_lane_set(edges_.loc[idxs], df_pid_2_edge, 2, 0).apply(lambda x: helper(x), axis=1)
 
 
 def handle_missing_lane_record(edge_miss, edges, df_pid_2_edge, prev_top_k=2, nxt_top_k=1):
@@ -792,48 +695,96 @@ def get_laneNum(edges, plot=True, db_name=None):
         df_pid_2_edge_filtered[~df_pid_2_edge_filtered.outlier]\
             .groupby('eid')['lane_num']\
             .apply(list)\
-            .apply(lambda x: stats.mode(x)[0][0]-1)
+            .apply(_get_lst_mode)
     )
     # TODO 上下游 - 连接
     edges_ = edges.merge(df_lane_nums, on='eid', how='left')
+    edges_.index = edges_.eid
     edge_miss = edges_[edges_.lane_num.isna()]
 
     # case 3: signal controled edge
-    con = edge_miss.edge_type == 3
-    df_3 = edge_miss.loc[con]
-    _get_lane_set(df_3, df_pid_2_edge, 2, 0).apply(_indentify_lane_num_for_type_3, axis=1)
-    _get_lane_set(df_3, df_pid_2_edge, 2, 0).lane_set.apply(_get_lst_mode)
-    
-
-    edge_miss_handled = handle_missing_lane_record(edge_miss, edges_, df_pid_2_edge)
-    # df_lane_nums = gdf_concat([edges_[~edges_.lane_num.isna()], edge_miss_handled] )[['eid', 'edge_type','lane_num']]
-    edges_final = edges.merge(df_lane_nums, on='eid', how='left')
-
-    if plot:
-        fig, ax = map_visualize(edges_final, scale=.05)
-        edges_final.plot(ax=ax, column='lane_num', legend=True, categorical=True)
+    idxs = edge_miss[edge_miss.edge_type == 3].index
+    if len(idxs) > 0:
+        edges_.loc[idxs, 'lane_num'] = _indentify_lane_num_for_type_3(edges_, idxs, df_pid_2_edge, net=net)
 
     if db_name is not None:
-        gdf_to_postgis( edges_final, db_name)
-        # gdf_to_postgis( edges_[edges_.lane_num.isna()], 'test_lane_no_record')
+        gdf_to_postgis(edges_, db_name)
 
     return df_lane_nums
 
 
-df_lane_nums = get_laneNum(edges, db_name=f'test_lane_res_{road_name}')
+#%%
+if __name__ == '__main__':
+    # # DEBUG 
+    # save_to_geojson(traj, os.path.join(HMM_FOLDER, "traj_debug_case2.geojson"))
+
+    # #%%
+    # # rid = '550a27-40c5-f0d3-5717-a1907d' # 金田路福田地铁站附近
+    # # rid = 'edbf2d-e2f3-703f-4b9f-9d6819' # 深南大道-市民中心-东行掉头
+    # # rid = 'cb7422-27d2-c73b-b682-a12ebd' # 深南大道辅道-市民中心段-东行
+    # # rid = '24fd43-b288-813c-b717-c8f6f8' # 深南大道西行
+
+
+    # check_single_traj(4, traj_lst)
+
+
+    # """ debug in levels """
+    # res = st_matching(traj, net, plot=True, satellite=True, debug_in_levels=True, save_fn=None, top_k=5)
+
+    # # traj = traj.sort_index(ascending=False).reset_index(drop=True)
+
+    # """ save to db """
+    # # gdf_to_postgis(gdf_roads, 'test_all')
+    # gdf_to_postgis(roads_levles[road_type], 'test_primary')
+    # gdf_to_postgis(mask, 'test_mask_primary')
+    pass
+
+
+""" initialize """
+# ! new traverse road framework
+coverage_dict = {}
+eid_visited = set()
+MATCHING_MEMO = gpd.GeoDataFrame(columns=['eid'])
+ST_MATCHING_DICT = {}
+PID_TO_EDGE = {}
+EDGE_TO_PID = {}
+
+
+"""step 1: download OSM data"""
+# FT_BBOX  = [114.02874162861015, 22.52426853077481, 114.06680715668308, 22.56334823810368]
+net = load_net_helper(bbox=SZ_BBOX, combine_link=True, reverse_edge=True, two_way_offeset=True, cache_folder='../../MatchGPS2OSM/cache')
+
+"""step 2: dowload pano topo"""
+futian_area = gpd.read_file('../cache/福田路网区域.geojson').iloc[0].geometry
+pano_base_res = pano_base_main(project_name='futian', geom=futian_area)
+gdf_base, gdf_roads, gdf_panos = pano_base_res['gdf_base'], pano_base_res['gdf_roads'], pano_base_res['gdf_panos']
+map_visualize( pano_base_res['gdf_roads'], scale=.01 )
+
+"""step 3: download pano imgs and predict"""
+# pano_img_res = get_staticimage_batch(gdf_panos, 50, True)
+gdf_panos = gdf_panos.merge( df_pred_memo[['PID', "DIR", 'lane_num']], on=['PID', "DIR"], how='left').set_index('PID')
+# TODO panos预测所有的情况 -> drop_pano_file、get_staticimage_batch、lstr数据库中更新
+
 
 #%%
-# ! 辅助分析
+"""特殊情况
+    1. 单行线的影响：福中一路(益田路至民田路段)，由东向西单向通行
+"""
 
-edges_.fillna(-1).groupby(['edge_type', 'lane_num'])[['eid']].count()
+road_name = "景田路"
+df_trajs, traj_uf, edges = get_pano_topo_by_road_level(net, gdf_base, gdf_panos, road_name=road_name, road_type=None, clip_geom=futian_area)
 
-# 缺失的类型分布
-edge_miss.edge_type.value_counts()
+edges.loc[:, 'edge_type'] = edges.eid.apply(lambda x: identify_edge_type(x, net))
 
-# case 没有记录
-edges_[edges_.lane_num.isna()]
-# case 记录为0
-edges_[edges_.lane_num==-1]
+traverse_edges(edges, gdf_roads, logger=logger)
+df_lane_nums = get_laneNum(edges, db_name = f'test_lane_res_{road_name}')
+
+# upload to db for debug
+# gdf_to_postgis( gpd.GeoDataFrame(df_trajs).drop(columns='pids_df'), 'test_topo_combine' )
+
+# for test
+# rid = 'e500bb-bfe5-17ae-b949-fc8d2a'
+# traj_uf.get_traj(rid, plot=True)
 
 
 #%%
@@ -855,48 +806,3 @@ path = st_matching(traj, net, plot=True, satellite=True, debug_in_levels=False)
 
 # step 7: data fusing
 # get_and_filter_panos_by_osm_rid
-
-
-# %%
-def pano_topo_mathcing_debug():
-    debug_folder = '../debug/滨河大道/'
-
-    df_trajs.query('rids_num >= 3 or pids_num >= 5 ', inplace=True)
-    err_lst = [] # [44, 88]
-    for id in tqdm(range(df_trajs.shape[0])):
-        try:
-            path = st_matching(df_trajs.iloc[id].pids_df, net, plot=True, satellite=True, debug_in_levels=False, 
-                            traj_thres=5, save_fn=f'../debug/滨河大道_0/{id:03d}_{df.iloc[id].name}.jpg')
-        except:
-            err_lst.append(id)
-
-
-    debug_folder = '../debug/滨河大道/'
-    df_trajs.query('rids_num < 3 and pids_num < 5 ', inplace=True)
-    err_lst = [] # [44, 88]
-    for id in tqdm(range(df_trajs.shape[0])):
-        try:
-            path = st_matching(df_trajs.iloc[id].pids_df, net, plot=True, satellite=True, debug_in_levels=False, 
-                            traj_thres=5, save_fn=f'../debug/滨河大道_1/{id:03d}_{df.iloc[id].name}.jpg')
-        except:
-            err_lst.append(id)
-
-
-    err_img_lst = [] # [43, 85]
-    debug_folder = '../debug/滨河大道/pred'
-
-    for id in tqdm(range(df_trajs.shape[0])):
-        try:
-            traj = df_trajs.iloc[id].pids_df
-            pred_res = pred_trajectory(traj, df_pred_memo, aerial_view=False, combine_view=True, with_lanes=True)
-            # pred_res.keys(); pred_res['gdf']; pred_res['aerial_view'] ;  
-            pred_res['combine_view'].save(os.path.join(debug_folder, f'{id:03d}_{df.iloc[id].name}.jpg') )
-        except:
-            err_img_lst.append(id)
-            
-    slight_rid = np.concatenate(df_trajs.query('rids_num <= 2 or pids_num <= 5 ').rids.values )
-    gdf_roads.loc[slight_rid].plot()
-
-
-
-#%%

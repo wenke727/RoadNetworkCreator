@@ -12,6 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 
+## [1.1.07] - 2021-10-20
+
+### Changed
+
+- main
+  - 初步遍历框架
+- Digraph_OSM 的道路过滤器 删除 service
+- pano_base
+  - 增加识别轨迹方向的模块(余弦相似度<.1), 然后调整方向
+- pano_topo
+  - get_topo_from_gdf_pano：根据pano_base的情况，调整edge的起点和终点
+- pano_img
+  - 删除、下载、更新流程
+- db_process
+  - update_db_panos, 根据最新的情况更新panos大数据库
+
 ## [1.1.06] - 2021-09-29
 
 ### Changed

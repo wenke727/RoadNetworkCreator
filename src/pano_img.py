@@ -110,8 +110,8 @@ def drop_pano_file(lst, folder=PANO_FOLFER):
     if isinstance(lst, gpd.GeoDataFrame):
         lst = lst.apply(lambda x: f"{x.PID}_{x.DIR}.jpg", axis=1).values.tolist()
     
-    for i in lst:
-        fn = os.path.join(PANO_FOLFER, i)
+    for i in tqdm(lst):
+        fn = os.path.join(folder, i)
         if not os.path.exists(fn):
             continue
         os.remove(fn)
@@ -184,13 +184,13 @@ def _multi_helper(param):
     return res
 
 
-def get_staticimage_batch(lst, n_jobs=30, with_bar=True, bar_describe="Crawl panos"):
+def get_staticimage_batch(lst, heading_att='DIR',n_jobs=30, with_bar=True, bar_describe="Crawl panos"):
     if lst is None:
         return None
     
     if isinstance(lst, gpd.GeoDataFrame) or isinstance(lst, pd.DataFrame):
         lst = lst.reset_index().\
-                  rename(columns={"PID": 'pid', 'DIR': 'heading'})[['pid', 'heading']].\
+                  rename(columns={"PID": 'pid', heading_att: 'heading'})[['pid', 'heading']].\
                   to_dict(orient='records')
     
     pbar = tqdm(total=len(lst), desc='get staticimage batch: ')
@@ -229,4 +229,15 @@ if __name__ == "__main__":
     res = get_staticimage_batch([param, param])
     
     print(res)
+
+
+    #%%
+    # ! 更新记录，删除已有文件，预测图片
+    panos = gpd.read_file("./gdf_panos_futian")
+
+    # delete exist imgs
+    drop_pano_file(panos.query("DIR != MoveDir"))
+
+    # download the new imgs
+    res = get_staticimage_batch(panos, heading_att = 'MoveDir')
 

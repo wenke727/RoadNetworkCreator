@@ -177,6 +177,7 @@ def update_unpredict_panos(pano_lst, DB_panos, df_memo):
 
 
 def pred_trajectory(gdf, df_memo, img_resize_factor=.5, aerial_view=True, combine_view=False, with_lanes=True):
+    # 预测轨迹节点，并生成鸟瞰图、移动拼接图
     res = {}
     res['gdf'] = gdf.merge(df_memo[['PID', 'DIR','lane_num','name', 'pred']], on=['PID', 'DIR'])
     fn_lst = res['gdf'].apply(lambda x: os.path.join(PANO_FOLFER, f"{x['name']}"), axis=1).values.tolist()
@@ -189,6 +190,7 @@ def pred_trajectory(gdf, df_memo, img_resize_factor=.5, aerial_view=True, combin
         else:
             img_lst = [Image.open(fn) for fn in fn_lst if os.path.exists(fn)]
 
+        print(img_lst)
         comb_img = combine_imgs(img_lst)
 
         x, y = comb_img.size
@@ -212,7 +214,7 @@ def pred_trajectory(gdf, df_memo, img_resize_factor=.5, aerial_view=True, combin
 if __name__ == '__main__':
     df_memo = load_df_memo(PRED_MEMO)
     gdf = gpd.read_file("../cache/panos_for_test.geojson")
-    res = pred_trajectory(gdf)
+    res = pred_trajectory(gdf, df_memo, combine_view=True)
     # res['combine_view']
 
     res['aerial_view']

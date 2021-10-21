@@ -13,7 +13,7 @@ from utils.azimuth_helper import azimuthAngle
 from utils.log_helper import LogHelper, logbook
 from utils.geo_plot_helper import map_visualize
 from utils.geo_helper import coords_pair_dist, gdf_to_geojson, gdf_to_postgis
-from pano_base import pano_dict_to_gdf, extract_gdf_roads_from_key_pano, extract_gdf_panos_from_key_pano
+from pano_base import pano_dict_to_gdf, extract_gdf_roads_from_key_pano, extract_gdf_panos_from_key_pano, extract_gdf_roads
 
 
 #%%
@@ -145,7 +145,7 @@ def plot_node_connections(node, df_topo, *args, **kwargs):
     return adj_nodes    
 
 
-def get_topo_from_gdf_pano(gdf_base, drop_irr_records=True, std_deviation=20):
+def get_topo_from_gdf_pano(gdf_base, neg_dir_rids=set(), drop_irr_records=True, std_deviation=20):
     """Extract topo infomation from panos geodataframe.
 
     Args:
@@ -178,7 +178,10 @@ def get_topo_from_gdf_pano(gdf_base, drop_irr_records=True, std_deviation=20):
         nodes = _roads[cur_index]['Panos']
 
         _rid, src, dst = _roads[cur_index]['ID'], nodes[0]['PID'], nodes[-1]['PID']
-        res = [{'rid': _rid, 'src': src, 'dst': dst, 'link':False}]
+        if _rid in neg_dir_rids:
+            res = [{'rid': _rid, 'src': dst, 'dst': src, 'link':False}]
+        else:
+            res = [{'rid': _rid, 'src': src, 'dst': dst, 'link':False}]
 
         for link in _links:
             info = {'src': pano.name, 'dst': link['PID'], 'link':True}
@@ -343,7 +346,8 @@ def combine_rids(gdf_base, gdf_roads, gdf_panos, plot=True, logger=None):
     Returns:
         [type]: [description]
     """
-    df_topo, df_topo_prev = get_topo_from_gdf_pano(gdf_base)
+    neg_dir_rids = set(gdf_panos[gdf_panos.Order<0].RID.unique())
+    df_topo, df_topo_prev = get_topo_from_gdf_pano(gdf_base, neg_dir_rids)
 
     res            = {}
     rid_2_start    = {}
@@ -404,13 +408,13 @@ if __name__ == '__main__':
     pano_dict = pickler.read('../cache/pano_dict_futian.pkl')
     gdf_base = pano_dict_to_gdf(pano_dict)
     gdf_panos = extract_gdf_panos_from_key_pano(gdf_base, update_dir=True)
-    gdf_roads = extract_gdf_roads_from_key_pano(gdf_base)
+    gdf_roads = extract_gdf_roads(gdf_panos)
 
 
     """" combine rids """
     uf, df_topo, df_topo_prev = combine_rids(gdf_base, gdf_roads, gdf_panos, plot=False, logger=logger)
     df_trajs = uf.trajs_to_gdf()
-    gdf_to_postgis(df_trajs, 'test_topo_futian')
+    gdf_to_postgis(df_trajs, 'test_topo_futian_new')
 
     
     """ query edge by node """

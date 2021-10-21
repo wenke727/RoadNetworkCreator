@@ -143,7 +143,7 @@ API情况
 
 批量更新处理, 预测并更新街景车道线数量
 
-- Use the latest model to predict the lane number of each pano and update the attribute. The result is stored in `/Data/minio_server/input/lane_shape_predict_memo.csv`
+- Use the latest model to predict the lane number of each pano and update the attribute. The result is stored in `/Data/minio_server/input/lane_shape_predict_memo.h5`
 
   ```
   # docker lstr 

@@ -4,23 +4,27 @@ import math
 import json
 import time
 import random
-from numpy.lib.utils import lookfor
 import requests
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from tqdm import tqdm
 import geopandas as gpd
+from copy import deepcopy
 from collections import deque
 from shapely.geometry import Point, LineString, box
 
 from db.db_process import load_postgis, gdf_to_postgis
 from utils.df_helper import query_df
+from utils.geo_helper import gdf_to_geojson
 from utils.http_helper import get_proxy
 from utils.log_helper import logbook, LogHelper
 from utils.coord.coord_transfer import bd_mc_to_wgs, wgs_to_bd_mc
 from utils.geo_plot_helper import map_visualize
 from utils.pickle_helper import PickleSaver
 from setting import FT_BBOX, PANO_FOLFER
+
+from utils.azimuth_helper import azimuth_diff, azimuth_cos_similarity
 
 saver = PickleSaver()
 
@@ -56,76 +60,142 @@ def extract_gdf_roads_from_key_pano(gdf_panos):
         gdf_panos = gpd.GeoDataFrame(gdf_panos).T
     assert isinstance(gdf_panos, gpd.GeoDataFrame), "Check Input"
     
-    gdf_roads = gdf_panos.apply( lambda x: _extract_helper(x.Roads), axis=1, result_type='expand' ).drop_duplicates(['ID','src', 'dst'])
+    gdf_roads = gdf_panos.apply( lambda x: _extract_helper(x.Roads), axis=1, result_type='expand' ).drop_duplicates(['ID', 'src', 'dst'])
     gdf_roads.set_index("ID", inplace=True)
 
     return gdf_roads
 
 
-def extract_gdf_panos_from_key_pano(gdf_panos, update_dir=False):
+def extract_gdf_roads(panos):
+    def _panos_to_line(df):
+        res = {
+            'RID': df.iloc[0].RID,
+            'src': df.iloc[0].name,
+            'dst': df.iloc[-1].name,
+            'Panos': df[["Order", 'DIR', 'MoveDir',  'Type', 'X', "Y"]].reset_index().to_dict('records')
+
+        }
+        
+        if df.shape[0] == 1:
+            res['geometry'] = LineString([df.iloc[0].geometry.coords[0], df.iloc[0].geometry.coords[0]])
+        else:    
+            res['geometry'] = LineString([item.geometry.coords[0] for index, item in df.iterrows() ])
+        
+        return gpd.GeoDataFrame([res])
+
+    panos.sort_values(["RID", "Order"], inplace=True)
+    
+    return panos.groupby("RID").apply(_panos_to_line).set_index("RID")
+
+
+def extract_gdf_panos_from_key_pano(panos, update_dir=False, sim_thred=.15):
     def _extract_helper(item):
         for r in item["Roads"]:
             if r['IsCurrent'] != 1:
                 continue
             
             sorted(r['Panos'], key = lambda x: x['Order'])
-            for pano in r['Panos']:
+            for idx, pano in enumerate(r['Panos']):
                 pano['RID'] = r['ID']
             
             return r['Panos']
 
         return None
 
-    if isinstance(gdf_panos, dict):
-        gdf_panos = gpd.GeoDataFrame(gdf_panos).T
-    assert isinstance(gdf_panos, gpd.GeoDataFrame), "Check Input"
+    def _update_key_pano_move_dir(df, gdf_key_panos):
+        """Update the moving direction of panos, for the heading of the last point in eahc segment is usually zero. 
+
+        Args:
+            gdf (GeoDataFrame): The original panos dataframe
+            gdf_key_panos (GeoDataFrame): The key panos dataframe
+
+        Returns:
+            [GeoDataFrame]: The panos dataframe after change the moving direaction
+        """
+        count_dict = df.RID.value_counts().to_dict()
+
+        # the first pano in the road
+        con = df.Order==0
+        df.loc[con, 'MoveDir'] = df[con].apply(lambda x: gdf_key_panos.loc[x.name].MoveDir, axis=1)
+        
+        con1 = con & df.apply(lambda x: count_dict[x.RID] > 1, axis=1)
+        df.loc[con1, 'dir_sim'] = df[con1].apply(lambda x: math.cos(azimuth_diff(x.MoveDir, x.DIR)*math.pi/180)+1, axis=1)
+
+        # the last pano in the road
+        df.sort_values(["RID", 'Order'], ascending=[True, False], inplace=True)
+        idx = df.groupby("RID").head(1).index
+        df.loc[idx, 'MoveDir'] = df.loc[idx].apply( lambda x: gdf_key_panos.loc[x.name]['MoveDir'] if x.name in gdf_key_panos.index else -1, axis=1 )
+        
+        return df
+
+    def _update_neg_dir_move_dir(gdf_panos, sim_thred=.15):
+        """增加判断，若是反方向则变更顺序
+
+        Args:
+            gdf_panos ([type]): [description]
+
+        Returns:
+            [type]: [description]
+        """
+
+        def _cal_dir_diff(x):
+            return ((x+360)-180) % 360
+
+        rids = gdf_panos[gdf_panos.dir_sim < sim_thred].RID.values
+        # update Order
+        idxs = gdf_panos.query(f"RID in @rids").index
+        gdf_panos.loc[idxs, 'Order'] = -gdf_panos.loc[idxs, 'Order']
+
+        # update MoveDir
+        idxs = gdf_panos.query(f"RID in @rids and not MoveDir>=0").index
+        gdf_panos.loc[idxs, 'MoveDir'] = gdf_panos.loc[idxs, 'DIR'].apply(_cal_dir_diff)
+        
+        # # update MoveDir for the positive dir
+        # rids = gdf_panos[gdf_panos.dir_sim > 2 - sim_thred].RID.values
+        # idxs = gdf_panos.query(f"RID in @rids and not MoveDir>=0").index
+        # gdf_panos.loc[idxs, 'MoveDir'] = gdf_panos.loc[idxs, 'DIR']
+        
+        return gdf_panos
+
+
+    if isinstance(panos, dict):
+        panos = gpd.GeoDataFrame(panos).T
+    assert isinstance(panos, gpd.GeoDataFrame), "Check Input"
     
-    df = np.concatenate( gdf_panos.apply( lambda x: _extract_helper(x), axis=1 ).values )
-    df = pd.DataFrame.from_records(df).drop_duplicates()
-    df = gpd.GeoDataFrame(df, geometry=df.apply(lambda x:  Point(*bd_mc_to_wgs(x['X'], x['Y'])), axis=1), crs='EPSG:4326')
+    df = pd.DataFrame.from_records(
+            np.concatenate( panos.apply( lambda x: _extract_helper(x), axis=1 ).values )
+        ).drop_duplicates()
+    df = gpd.GeoDataFrame(df, geometry=df.apply(lambda x: Point(*bd_mc_to_wgs(x['X'], x['Y'])), axis=1), crs='EPSG:4326')
     df.set_index("PID", inplace=True)
 
+
     if update_dir:
-        update_move_dir(df, gdf_panos)
+        _update_key_pano_move_dir(df, panos)
+        _update_neg_dir_move_dir(df, sim_thred)
+    
+    con = df.MoveDir.isna()
+    df.loc[con, 'MoveDir'] = df.loc[con, 'DIR']
+    df.MoveDir = df.MoveDir.astype(np.int)
+    df.sort_values(["RID", 'Order'], ascending=[True, True], inplace=True)   
 
     return df
 
 
-def update_move_dir(gdf, gdf_key_panos):
-    """Update the moving direction of panos, for the heading of the last point in eahc segment is usually zero. 
+"""traverse relayed functions"""
 
-    Args:
-        gdf (GeoDataFrame): The original panos dataframe
-        gdf_key_panos (GeoDataFrame): The key panos dataframe
-
-    Returns:
-        [GeoDataFrame]: The panos dataframe after change the moving direaction
-    """
-    gdf.sort_values(["RID", 'Order'], ascending=[True, False], inplace=True)
-    idx = gdf.groupby("RID").head(1).index
+def query_pano(lon=None, lat=None, pid=None, proxies=True, logger=None, memo=None):
+    def _parse_pano_respond(res):
+        content = res['content']
+        assert len(content) == 1, logger.error(f"check result: {content}")
+        
+        item = content[0]
+        item['geometry'] = Point( bd_mc_to_wgs(item['X'], item['Y']) )
+        pid = item['ID']
+        del item["ID"]
     
-    gdf.loc[idx, 'DIR'] = gdf.loc[idx].apply( lambda x: gdf_key_panos.loc[x.name]['MoveDir'] if x.name in gdf_key_panos.index else -1, axis=1 )
-    gdf.loc[:, 'DIR'] = gdf.loc[:, 'DIR'].astype(np.int)
-    gdf.sort_values(["RID", 'Order'], ascending=[True, True], inplace=True)
-    
-    return gdf
+        return pid, item
 
-
-def parse_pano_respond(res):
-    content = res['content']
-    assert len(content) == 1, logger.error(f"check result: {content}")
-    
-    item = content[0]
-    item['geometry'] = Point( bd_mc_to_wgs(item['X'], item['Y']) )
-    pid = item['ID']
-    del item["ID"]
-   
-    return pid, item
-
-
-def query_pano_by_api(lon=None, lat=None, pid=None, proxies=True, logger=None, memo=None):
-    
-    def __request_helper(url):
+    def _request_helper(url):
         i = 0
         while i < 3:   
             try:
@@ -157,7 +227,7 @@ def query_pano_by_api(lon=None, lat=None, pid=None, proxies=True, logger=None, m
     if lon is not None and lat is not None:
         x, y = wgs_to_bd_mc(lon, lat)
         url = f'https://mapsv0.bdimg.com/?qt=qsdata&x={x}&y={y}'
-        res = __request_helper(url)
+        res = _request_helper(url)
         
         if 'content' in res and 'id' in res['content']:
             pid = res['content']['id']
@@ -174,8 +244,8 @@ def query_pano_by_api(lon=None, lat=None, pid=None, proxies=True, logger=None, m
         url = f"https://mapsv0.bdimg.com/?qt=sdata&sid={pid}"
     assert url is not None, "check the input"
     
-    res = __request_helper(url)
-    pid, item = parse_pano_respond(res)
+    res = _request_helper(url)
+    pid, item = _parse_pano_respond(res)
 
     if memo is not None:
         memo[pid] = item
@@ -185,7 +255,7 @@ def query_pano_by_api(lon=None, lat=None, pid=None, proxies=True, logger=None, m
 
 def query_key_pano(lon=None, lat=None, pid=None, memo={}, logger=None, *args, **kwargs):
     key_panos = []
-    respond = query_pano_by_api(lon, lat, pid=pid, logger=logger, memo=memo)
+    respond = query_pano(lon, lat, pid=pid, proxies=True, logger=logger, memo=memo)
     
     if respond is None:
         return key_panos
@@ -202,7 +272,7 @@ def query_key_pano(lon=None, lat=None, pid=None, memo={}, logger=None, *args, **
                 continue
             
             if p != pid:  
-                res = query_pano_by_api(pid=p, logger=logger, memo=memo)
+                res = query_pano(pid=p, logger=logger, memo=memo)
                 if res is None:
                     continue
             else:
@@ -210,7 +280,6 @@ def query_key_pano(lon=None, lat=None, pid=None, memo={}, logger=None, *args, **
             
             nxt, nxt_record = res['pid'], res['info']
             memo[nxt] = nxt_record
-            # key_panos.append(nxt)
 
         break
     
@@ -246,6 +315,7 @@ def bfs_panos(pid, bbox=None, geom=None, memo={}, max_layer=500, veobose=True, l
                 for link in memo[pid]['Links']:
                     if link["PID"] in memo:
                         continue
+                    
                     queue.append(link["PID"])
                     if logger is not None:
                         logger.debug(f"node: {pid}, links: {[ l['PID'] for l in memo[pid]['Links']]}")
@@ -294,7 +364,7 @@ def crawl_panos_by_area(bbox=None, geom=None, verbose=True, plot=True, logger=No
         if node in visited:
             continue
         
-        pid = query_pano_by_api(*node, memo=pano_dict, logger=logger)['pid']
+        pid = query_pano(*node, memo=pano_dict, logger=logger)['pid']
         print(node, pid)
         
         origin_size = len(pano_dict)
@@ -304,7 +374,7 @@ def crawl_panos_by_area(bbox=None, geom=None, verbose=True, plot=True, logger=No
         if len(pano_dict) == origin_size:
             continue
         
-        # TODO: 每次循环计算一次过于费劲，可适当减少节点的数量或者其他策略
+        # FIXME: 每次循环计算一次过于费劲，可适当减少节点的数量或者其他策略
         lst = get_unvisited_point(pano_dict_to_gdf(pano_dict), geom_wkt=geom.wkt, plot=False)
         queue = deque([i for i in lst if i not in visited])
         
@@ -328,8 +398,9 @@ def pano_base_main(project_name, geom=None, bbox=None, rewrite=False, logger=Non
         saver.save(pano_dict, fn)
     
     gdf_base = pano_dict_to_gdf(pano_dict)
-    gdf_roads = extract_gdf_roads_from_key_pano(pano_dict)
+    # gdf_roads_ = extract_gdf_roads_from_key_pano(pano_dict)
     gdf_panos = extract_gdf_panos_from_key_pano(pano_dict, update_dir=True)
+    gdf_roads = extract_gdf_roads(gdf_panos)
 
     res = { 'pano_dict': pano_dict,
             'gdf_base': gdf_base,
@@ -343,6 +414,13 @@ def pano_base_main(project_name, geom=None, bbox=None, rewrite=False, logger=Non
 #%%
 if __name__ == '__main__':
     logger = LogHelper(log_name='pano.log', stdOutFlag=False).make_logger(level=logbook.INFO)
+
+
+    """futian 核心城区"""
+    futian_area = gpd.read_file('../cache/福田路网区域.geojson').iloc[0].geometry
+    pano_base_res = pano_base_main(project_name="futian", bbox=futian_area.bounds, logger=logger, rewrite=False)
+    gdf_base, gdf_roads, gdf_panos = pano_base_res['gdf_base'], pano_base_res['gdf_roads'], pano_base_res['gdf_panos']
+
 
     """ query key pano check """
     # tmp_dict = {}
@@ -397,9 +475,3 @@ if __name__ == '__main__':
     bbox = [114.049865,22.549847, 114.05929,22.55306]
     pano_dict = crawl_panos_by_area(bbox=bbox, logger=logger)
     map_visualize(extract_gdf_roads_from_key_pano(pano_dict))
-
-
-    """futian 核心城区"""
-    futian_area = gpd.read_file('../cache/福田路网区域.geojson').iloc[0].geometry
-    pano_base_main("futian", bbox=futian_area.bounds, logger=logger, rewrite=False)
-

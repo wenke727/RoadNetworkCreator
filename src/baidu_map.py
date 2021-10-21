@@ -65,7 +65,6 @@ def get_road_shp_by_search_API(road_name, sleep=False):
 
         params['wd'] = road_name
         
-        # TODO
         # query_str = urllib.parse.urlencode(params, timeout=60)
         query_str = urllib.parse.urlencode(params)
         query_str = url+"?"+query_str

@@ -15,6 +15,7 @@ ENGINE   = create_engine(config['data']['DB'])
 
 #%%
 
+"""" io """
 def load_postgis(table, bbox=None, geom_wkt=None, engine=ENGINE):
     if bbox is not None:
        geom_wkt = box(*bbox).to_wkt()
@@ -50,6 +51,28 @@ def gdf_to_postgis(gdf, name, engine=ENGINE, if_exists='replace', *args, **kwarg
         print('gdf_to_postgis error!')
     
     return False
+
+
+def gdf_to_geojson(gdf, fn):
+    if not isinstance(gdf, gpd.GeoDataFrame):
+        print('Check the format of the gdf.')
+        return False
+
+    if 'geojson' not in fn:
+        fn = f'{fn}.geojson'
+    
+    gdf.to_file(fn, driver="GeoJSON")
+
+    return 
+
+
+def save_to_geojson(gdf, fn):
+    if not isinstance(gdf, gpd.GeoDataFrame):
+        print('Check the format of the gdf.')
+        return False
+    
+    gdf.to_file(fn, driver='GeoJSON')
+    return True
 
 
 def load_from_DB(new=False):
@@ -150,6 +173,8 @@ def DB_backup(DB_pano_base, DB_panos, DB_connectors, DB_roads):
             print( f'store dataframe {df_temp.name} failed! ' )
 
 
+""" Business related processes """
+
 def extract_connectors_from_panos_respond( DB_pano_base, DB_roads ):
     from utils.coord.coord_transfer import bd_mc_to_wgs_vector
     
@@ -169,15 +194,6 @@ def extract_connectors_from_panos_respond( DB_pano_base, DB_roads ):
                                    crs ='EPSG:4326'
                                  )
     return connectors
-
-
-def save_to_geojson(gdf, fn):
-    if not isinstance(gdf, gpd.GeoDataFrame):
-        print('Check the format of the gdf.')
-        return False
-    
-    gdf.to_file(fn, driver='GeoJSON')
-    return True
 
 
 def update_lane_num_in_DB():
@@ -220,22 +236,50 @@ def update_lane_num_in_DB():
     return    
 
 
-def update_panos_url():
+def update_panos_url(df_panos):
     """Update the url attribute of panos
     """
     pano_img_fns = pd.DataFrame( os.listdir(pano_dir), columns=['fn'])
-    pano_img_fns.loc[:, 'PID'] = pano_img_fns.fn.apply(lambda x: x.split("_")[2] if len(x.split("_")) > 2 else None)
+    pano_img_fns.loc[:, 'PID'] = pano_img_fns.fn.apply(lambda x: x.split("_")[0] if len(x.split("_")) == 2 else None)
     pano_img_fns.drop_duplicates('PID', inplace=True)
 
-    df_panos = load_DB_panos()
     indexes_with_imgs = df_panos.merge(pano_img_fns['PID'], on='PID').index
-    df_panos.loc[indexes_with_imgs, 'url'] = df_panos.loc[indexes_with_imgs].PID.apply(lambda x: f"http://192.168.135.15:4000/pred_by_pid?format=img&pid={x}")
+    df_panos.loc[indexes_with_imgs, 'url'] = df_panos.loc[indexes_with_imgs].apply(lambda x: f"http://192.168.135.15:9000/panos/{x.PID}_{x.DIR}.jpg", axis=1)
     # the url to show the predict pic
     df_panos.loc[:, 'predict_url'] = df_panos.PID.apply(lambda x: f"http://192.168.135.15:4000/pred_by_pid?format=img&pid={x}")
     
     gdf_to_postgis(df_panos, 'panos')
 
     return
+
+
+def update_db_panos(panos = gpd.read_file("../gdf_panos.geojson")):
+    """更新已有数据库中的panos数据
+
+    Returns:
+        [type]: [description]
+    """
+    
+    df_memo = pd.read_hdf(config['data']['df_pred_memo'])
+    DB_panos = load_DB_panos()
+
+    DB_panos.set_index("PID", inplace=True)
+    panos.set_index("PID", inplace=True)
+
+    drop_idxs = DB_panos.merge(panos['DIR'], left_index=True, right_index=True).index.to_list()
+    DB_panos.query('index not in @drop_idxs', inplace=True)
+
+    atts = [ i for i in list(panos) if i not in ['DIR', 'lane_num', 'dir_sim']]
+    tmp = panos[atts].merge(df_memo[["PID", "DIR", 'lane_num']], left_on=['PID', 'MoveDir'], right_on=["PID", "DIR"]).set_index("PID")
+
+    tmp[tmp.DIR.isna()]
+    tmp.drop(columns='MoveDir', inplace=True)
+
+    DB_panos = DB_panos.append(tmp).reset_index()
+
+    update_panos_url(DB_panos)
+    
+    return True
 
 
 #%%
