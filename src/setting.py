@@ -43,3 +43,29 @@ filters['walk'] = {'area':['yes'],
                    'service':['private'],
                    'access':['private']
                    }
+
+
+"""" road_level """
+link_type_no_dict = {
+    'motorway':1, 
+    'trunk':2, 
+    'primary':3, 
+    'secondary':4, 
+    'tertiary':5, 
+    'motorway_link':5.1, 
+    'trunk_link':5.2, 
+    'primary_link':5.3, 
+    'secondary_link':5.4, 
+    'tertiary_link':5.5, 
+    'residential':6, 
+    'service':7, 
+    
+    'cycleway':8, 
+    'footway':9, 
+    'track':10, 
+    'unclassified':11, 
+    'living_street': 15, 
+    'connector':20, 
+    'railway':30, 
+    'aeroway':31
+}

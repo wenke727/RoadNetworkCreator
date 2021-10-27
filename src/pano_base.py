@@ -89,6 +89,9 @@ def extract_gdf_roads(panos):
 
 
 def extract_gdf_panos_from_key_pano(panos, update_dir=False, sim_thred=.15):
+    def _cal_dir_diff(x):
+        return ((x+360)-180) % 360
+
     def _extract_helper(item):
         for r in item["Roads"]:
             if r['IsCurrent'] != 1:
@@ -128,7 +131,7 @@ def extract_gdf_panos_from_key_pano(panos, update_dir=False, sim_thred=.15):
         
         return df
 
-    def _update_neg_dir_move_dir(gdf_panos, sim_thred=.15):
+    def _update_neg_dir_move_dir(df, sim_thred=.15):
         """增加判断，若是反方向则变更顺序
 
         Args:
@@ -137,25 +140,25 @@ def extract_gdf_panos_from_key_pano(panos, update_dir=False, sim_thred=.15):
         Returns:
             [type]: [description]
         """
-
-        def _cal_dir_diff(x):
-            return ((x+360)-180) % 360
-
-        rids = gdf_panos[gdf_panos.dir_sim < sim_thred].RID.values
+        df.loc[:, 'revert'] = False
+        
+        rids = df[df.dir_sim < sim_thred].RID.values
         # update Order
-        idxs = gdf_panos.query(f"RID in @rids").index
-        gdf_panos.loc[idxs, 'Order'] = -gdf_panos.loc[idxs, 'Order']
+        idxs = df.query(f"RID in @rids").index
+        df.loc[idxs, 'revert'] = True
+        _max_idx_dict = df.loc[idxs].groupby('RID').Order.max()
+        df.loc[idxs, 'Order'] = df.loc[idxs].apply(lambda x: _max_idx_dict.loc[x.RID]-x.Order, axis=1)
 
         # update MoveDir
-        idxs = gdf_panos.query(f"RID in @rids and not MoveDir>=0").index
-        gdf_panos.loc[idxs, 'MoveDir'] = gdf_panos.loc[idxs, 'DIR'].apply(_cal_dir_diff)
+        idxs = df.query(f"RID in @rids and not MoveDir>=0").index
+        df.loc[idxs, 'MoveDir'] = df.loc[idxs, 'DIR'].apply(_cal_dir_diff)
         
         # # update MoveDir for the positive dir
         # rids = gdf_panos[gdf_panos.dir_sim > 2 - sim_thred].RID.values
         # idxs = gdf_panos.query(f"RID in @rids and not MoveDir>=0").index
         # gdf_panos.loc[idxs, 'MoveDir'] = gdf_panos.loc[idxs, 'DIR']
         
-        return gdf_panos
+        return df
 
 
     if isinstance(panos, dict):

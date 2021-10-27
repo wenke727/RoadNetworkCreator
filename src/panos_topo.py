@@ -77,12 +77,10 @@ class Pano_UnionFind(UnionFind):
         lst = {}
         for key in tqdm(self.trajs.keys()):
             lst[key] = {}
-            lst[key]['rids'] = self.get_traj(rid=key, plot=False)
+            lst[key]['rids']     = self.get_traj(rid=key, plot=False)
             lst[key]['rids_num'] = len(lst[key]['rids'])
-            lst[key]['pids_df'] =  self.get_panos(key, plot=False) 
+            lst[key]['pids_df']  = self.get_panos(key, plot=False) 
             lst[key]['pids_num'] = lst[key]['pids_df'].shape[0]
-            # if lst[key]['pids_df'] is not None:
-                # lst[key]['pred'] = pred_trajectory(lst[key]['pids_df'], df_pred_memo, aerial_view=False, combine_view=True, with_lanes=True)
 
         df = gpd.GeoDataFrame(lst).T
         df.rids = df.rids.astype(str)
@@ -346,7 +344,7 @@ def combine_rids(gdf_base, gdf_roads, gdf_panos, plot=True, logger=None):
     Returns:
         [type]: [description]
     """
-    neg_dir_rids = set(gdf_panos[gdf_panos.Order<0].RID.unique())
+    neg_dir_rids = set(gdf_panos[gdf_panos['revert']].RID.unique())
     df_topo, df_topo_prev = get_topo_from_gdf_pano(gdf_base, neg_dir_rids)
 
     res            = {}

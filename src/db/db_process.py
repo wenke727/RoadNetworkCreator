@@ -253,13 +253,17 @@ def update_panos_url(df_panos):
     return
 
 
-def update_db_panos(panos = gpd.read_file("../gdf_panos.geojson")):
+def update_db_panos(panos):
     """更新已有数据库中的panos数据
+    
+    Args:
+        panos ([type]): panos数据, gpd.read_file("../gdf_panos.geojson")
 
     Returns:
         [type]: [description]
     """
-    
+
+
     df_memo = pd.read_hdf(config['data']['df_pred_memo'])
     DB_panos = load_DB_panos()
 

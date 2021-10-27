@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 
+## [1.1.08] - 2021-10-27
+
+### Changed
+
+- main
+  - 初步实现区域路网的生成，并降低重复操作
+- pano_base
+  - extract_gdf_panos_from_key_pano: 修改反方向的Order，原来直接取负数，现在按照新的顺序重新排序
+- settings.py
+  - Add road level.
+
 ## [1.1.07] - 2021-10-20
 
 ### Changed
