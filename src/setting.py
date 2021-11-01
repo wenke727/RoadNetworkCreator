@@ -48,15 +48,16 @@ filters['walk'] = {'area':['yes'],
 """" road_level """
 link_type_no_dict = {
     'motorway':1, 
+    'motorway_link':1.1, 
     'trunk':2, 
+    'trunk_link':2.2, 
     'primary':3, 
+    'primary_link':3.3, 
     'secondary':4, 
+    'secondary_link':4.4, 
     'tertiary':5, 
-    'motorway_link':5.1, 
-    'trunk_link':5.2, 
-    'primary_link':5.3, 
-    'secondary_link':5.4, 
     'tertiary_link':5.5, 
+
     'residential':6, 
     'service':7, 
     

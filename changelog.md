@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ****
 
+## [1.1.09] - 2021-11-01
+
+- fusion.py
+  - 将现有的代码整理成类`DataFushion`
+
 ## [1.1.08] - 2021-10-27
 
 ### Changed

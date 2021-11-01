@@ -409,6 +409,7 @@ def pano_base_main(project_name, geom=None, bbox=None, rewrite=False, logger=Non
             'gdf_base': gdf_base,
             'gdf_roads': gdf_roads,
             'gdf_panos': gdf_panos,
+            'bounds': geom
         }
 
     return res

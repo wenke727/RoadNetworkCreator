@@ -75,7 +75,7 @@ class Pano_UnionFind(UnionFind):
 
     def trajs_to_gdf(self,):
         lst = {}
-        for key in tqdm(self.trajs.keys()):
+        for key in tqdm(self.trajs.keys(), desc="Convert trajs to dataframe"):
             lst[key] = {}
             lst[key]['rids']     = self.get_traj(rid=key, plot=False)
             lst[key]['rids_num'] = len(lst[key]['rids'])
