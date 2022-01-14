@@ -5,6 +5,16 @@ from haversine import haversine, Unit
 from shapely.geometry import Point, LineString, box
 
 
+
+def geom_buffer(df:gpd.GeoDataFrame, buffer_dis=100, att='buffer_', crs_wgs=4326, crs_prj=900913):
+    df.loc[:, att] = df.to_crs(epsg=crs_prj).buffer(buffer_dis).to_crs(epsg=crs_wgs)
+    df.set_geometry(att, inplace=True)
+    
+    whole_geom = df.dissolve().iloc[0][att]
+    
+    return df, whole_geom
+
+
 """" Point helper """
 def coords_pair_dist(o, d, xy=True):
     if isinstance(o, Point) and isinstance(d, Point):

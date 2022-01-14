@@ -11,12 +11,12 @@ from scipy import stats
 from shapely.geometry import point, LineString, box
 
 from pano_base import pano_base_main
-from pano_img import get_staticimage_batch
+from pano_img import fetch_pano_img_parallel
 from panos_topo import combine_rids, Pano_UnionFind
 from pano_predict import pred_trajectory, PRED_MEMO, update_unpredict_panos
 from setting import CACHE_FOLDER, DIS_FACTOR, LXD_BBOX, SZU_BBOX, SZ_BBOX, FT_BBOX, link_type_no_dict
 
-from utils.log_helper import LogHelper, logbook
+from utils.log_helper import LogHelper, logbook, BASE_DIR
 from utils.geo_plot_helper import map_visualize
 from utils.df_helper import load_df_memo, query_df, gdf_concat
 from utils.interval_helper import merge_intervals_lst
@@ -34,7 +34,7 @@ pd.set_option('display.max_rows', 50)
 df_pred_memo = load_df_memo(PRED_MEMO)
 
 """特殊情况
-    1. 单行线的影响：福中一路(益田路至民田路段)，由东向西单向通行
+    1. 单行线的影响: 福中一路(益田路至民田路段)，由东向西单向通行
 """
 
 

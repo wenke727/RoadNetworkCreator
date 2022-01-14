@@ -1,6 +1,6 @@
 data:
   DB            : postgresql://postgres:pcl@A5A@192.168.135.15:5432/road_network
-  log_dir       : /home/pcl/traffic/RoadNetworkCreator_by_View/log
+  log_dir       : ./log
   area          : /home/pcl/Data/minio_server/input/Shenzhen_boundary_district_level_wgs.geojson
   df_matching   : /home/pcl/Data/minio_server/input/panos_matching.csv
   df_pred_memo  : /home/pcl/Data/minio_server/input/lane_shape_predict_memo.h5

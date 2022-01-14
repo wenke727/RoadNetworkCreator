@@ -19,13 +19,12 @@ def coords_pair_dist(o, d, xy=True):
     return np.inf
 
 
-def azimuth_diff(a, b):
+def azimuth_diff(a, b, unit='radian'):
     """calcaluate the angle diff between two azimuth
-
     Args:
-        a ([type]): [description]
-        b ([type]): [description]
-
+        a ([type]): Unit: degree
+        b ([type]): Unit: degree
+        unit(string): radian or degree
     Returns:
         [type]: [description]
     """
@@ -34,7 +33,7 @@ def azimuth_diff(a, b):
     if diff > 180:
         diff = 360-diff
 
-    return diff
+    return diff if unit =='degree' else diff*math.pi/180
 
 
 def azimuthAngle(x1, y1, x2, y2):

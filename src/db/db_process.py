@@ -16,18 +16,20 @@ ENGINE   = create_engine(config['data']['DB'])
 #%%
 
 """" io """
-def load_postgis(table, bbox=None, geom_wkt=None, engine=ENGINE):
+def load_postgis(table, atts="*", condition=None, bbox=None, geom_wkt=None, engine=ENGINE):
     if bbox is not None:
        geom_wkt = box(*bbox).to_wkt()
      
     if geom_wkt is None:
-        sql = f'select * from {table}'
+        sql = f"select {atts} from {table}"
     else:        
-        sql = f"""select * from {table} where ST_Within( geometry, ST_GeomFromText('{geom_wkt}', 4326) )"""
-        
+        sql = f"""select {atts} from {table} where ST_Within( geometry, ST_GeomFromText('{geom_wkt}', 4326) )"""
+    
+    if condition is not None:
+        sql += f" where {condition}" if geom_wkt is None else f" {condition}"
+    
+    # print(f"SQL: {sql}")
     df = gpd.read_postgis( sql, geom_col='geometry', con=engine )
-    # shenzhen_boundary = gpd.read_file('../input/ShenzhenBoundary_wgs_citylevel.geojson')
-    # return gpd.sjoin(df, shenzhen_boundary, op='within')
 
     return df
 
@@ -39,7 +41,7 @@ def gdf_to_postgis(gdf, name, engine=ENGINE, if_exists='replace', *args, **kwarg
         gdf ([type]): [description]
         name ([type]): [description]
         engine ([type], optional): [description]. Defaults to ENGINE.
-        if_exists (str, optional): [description]. Defaults to 'replace'.
+        if_exists (str, optional): [description]. Defaults to 'replace'. if_exists{‘fail’, ‘replace’, ‘append’}
 
     Returns:
         [type]: [description]
@@ -51,6 +53,19 @@ def gdf_to_postgis(gdf, name, engine=ENGINE, if_exists='replace', *args, **kwarg
         print('gdf_to_postgis error!')
     
     return False
+
+
+def upload_pano_base(gdf_base:gpd.GeoDataFrame):
+    gdf_base.loc[:, "ID"] = gdf_base.index
+    
+    db_pano_base = load_postgis('pano_base')
+    ori_size, new_szie = db_pano_base.shape[0], gdf_base.shape[0]
+    tmp = gdf_base.append(db_pano_base).drop_duplicates("ID", keep='first')
+    
+    if ori_size == tmp.shape[0]:
+        return True
+
+    return gdf_to_postgis(tmp, 'pano_base')
 
 
 def gdf_to_geojson(gdf, fn):

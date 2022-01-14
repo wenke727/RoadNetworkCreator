@@ -9,11 +9,11 @@ from shapely.geometry import LineString
 
 from utils.unionFind import UnionFind
 from utils.pickle_helper import PickleSaver
-from utils.azimuth_helper import azimuthAngle
+from utils.azimuth_helper import azimuthAngle, azimuth_diff
 from utils.log_helper import LogHelper, logbook
 from utils.geo_plot_helper import map_visualize
 from utils.geo_helper import coords_pair_dist, gdf_to_geojson, gdf_to_postgis
-from pano_base import pano_dict_to_gdf, extract_gdf_roads_from_key_pano, extract_gdf_panos_from_key_pano, extract_gdf_roads
+# from pano_base import pano_dict_to_gdf,  extract_gdf_panos_from_key_pano, extract_gdf_roads
 
 
 #%%
@@ -87,11 +87,13 @@ class Pano_UnionFind(UnionFind):
         df.drop_duplicates('rids', inplace=True)
         df.rids = df.rids.apply(lambda x: eval(x))
 
-        df.loc[:, 'geometry'] = df.apply(
-            lambda x: 
-                LineString(self.get_panos(x.name, False).geometry.apply(lambda x: x.coords[0]).tolist()),
-            axis = 1
-        )
+        def helper(x):
+            # BUG ValueError: LineStrings must have at least 2 coordinate tuples
+            coords = self.get_panos(x.name, False).geometry.apply(lambda x: x.coords[0]).tolist()
+            
+            return LineString(coords) if len(coords) > 1 else LineString(coords*2)
+
+        df.loc[:, 'geometry'] = df.apply(helper, axis = 1)
         
         self.gdf = df.sort_values('pids_num', ascending=False)
 
@@ -100,23 +102,6 @@ class Pano_UnionFind(UnionFind):
 
 def query_edge_by_node(id, df_topo):
     return df_topo.query( "src == @id or dst == @id" )
-
-
-def azimuth_diff(a, b, unit='radian'):
-    """calcaluate the angle diff between two azimuth
-    Args:
-        a ([type]): Unit: degree
-        b ([type]): Unit: degree
-        unit(string): radian or degree
-    Returns:
-        [type]: [description]
-    """
-    diff = abs(a-b)
-
-    if diff > 180:
-        diff = 360-diff
-
-    return diff if unit =='degree' else diff*math.pi/180
 
 
 def plot_node_connections(node, df_topo, *args, **kwargs):
@@ -412,7 +397,15 @@ if __name__ == '__main__':
     """" combine rids """
     uf, df_topo, df_topo_prev = combine_rids(gdf_base, gdf_roads, gdf_panos, plot=False, logger=logger)
     df_trajs = uf.trajs_to_gdf()
-    gdf_to_postgis(df_trajs, 'test_topo_futian_new')
+    gdf_to_postgis(df_trajs, 'test_topo_futian_0105')
+    
+    # TODO 获取一条轨迹的街景数据
+    df_traj = df_trajs.iloc[0].pids_df
+    from pano_img import fetch_pano_img_parallel
+    res =  fetch_pano_img_parallel(df_traj, 'MoveDir')
+    
+    gdf_to_geojson(df_traj, 'jintianroad_north')
+       
 
     
     """ query edge by node """

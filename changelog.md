@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AddedOnRampEdge 车道线设置
 
 ****
+## [1.2.01] 2022-01-14
+
+- 重新整理爬虫程序，并封装
 
 ## [1.1.09] - 2021-11-01
 
@@ -35,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - main
   - 初步遍历框架
 - Digraph_OSM 的道路过滤器 删除 service
-- pano_base
+- pano_base::`extract_gdf_panos_from_key_pano`
   - 增加识别轨迹方向的模块(余弦相似度<.1), 然后调整方向
 - pano_topo
   - get_topo_from_gdf_pano：根据pano_base的情况，调整edge的起点和终点

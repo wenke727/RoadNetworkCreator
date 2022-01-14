@@ -9,7 +9,7 @@ from db.features_API import get_features
 from db.db_process import load_postgis, gdf_to_postgis
 from utils.geo_plot_helper import map_visualize
 from pano_base import pano_dict_to_gdf, update_move_dir
-from pano_img import get_staticimage, get_staticimage_batch, get_pano_ids_by_rid
+from pano_img import fetch_pano_img, fetch_pano_img_parallel, get_pano_ids_by_rid
 
 from setting import PANO_FOLFER
 
@@ -48,7 +48,7 @@ def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
         if os.path.exists(fn):
             continue
 
-        result = get_staticimage(**params)
+        result = fetch_pano_img(**params)
         res.append(result)
         pre_heading = heading
         
@@ -196,7 +196,7 @@ def delete_history_error_dir_panos(download_new_pano=True, update=False):
         pano_lst = pano_lst.merge(pano_imgs_exist, left_on=['pid', 'heading'], right_on=['pid', 'dir'], how='left')
         pano_lst = pano_lst[pano_lst.fn.isna()][['pid', 'heading']].to_dict('records')
 
-        get_staticimage_batch(pano_lst)
+        fetch_pano_img_parallel(pano_lst)
 
     if update:
         df_panos = df_panos.set_index('PID')
@@ -236,11 +236,11 @@ if __name__ == '__main__':
     pano_dict = saver.read('../cache/pano_dict_szu.pkl')
     new_pano_lst = check_unvisited_pano_img(pano_dict)
 
-    get_staticimage_batch(new_pano_lst)
+    fetch_pano_img_parallel(new_pano_lst)
     
     # check
     param = {'pid': '01005700001312021447154435T', 'heading': 180}
-    get_staticimage_batch([param, param, param])
+    fetch_pano_img_parallel([param, param, param])
     
     """ delete panos with error direction, and download the correct one """
     delete_history_error_dir_panos()

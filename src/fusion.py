@@ -3,6 +3,7 @@ import os
 import sys
 import math
 import heapq
+from matplotlib.pyplot import axis
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -11,7 +12,7 @@ from scipy import stats
 from shapely.geometry import point, LineString, box
 
 from pano_base import pano_base_main
-from pano_img import get_staticimage_batch
+from pano_img import fetch_pano_img_parallel
 from panos_topo import combine_rids, Pano_UnionFind
 from pano_predict import pred_trajectory, PRED_MEMO, update_unpredict_panos
 from setting import CACHE_FOLDER, DIS_FACTOR, LXD_BBOX, SZU_BBOX, SZ_BBOX, FT_BBOX, link_type_no_dict
@@ -41,11 +42,11 @@ net = load_net_helper(bbox=SZ_BBOX, cache_folder='../../MatchGPS2OSM/cache')
 
 """step 2: dowload pano topo"""
 futian_area = gpd.read_file('../cache/福田路网区域.geojson').iloc[0].geometry
-pano_data = pano_base_main(project_name = 'futian', geom=futian_area)
+pano_data = pano_base_main(project_name = 'futian', geofence=futian_area)
 
 """step 3: download pano imgs and predict"""
-# pano_img_res = get_staticimage_batch(gdf_panos, 50, True)
-# panos预测所有的情况 -> drop_pano_file、get_staticimage_batch、lstr数据库中更新
+# pano_img_res = get_staticimage_parallel(gdf_panos, 50, True)
+# panos预测所有的情况 -> drop_pano_file、get_staticimage_parallel、lstr数据库中更新
 pano_data['gdf_panos'] = pano_data['gdf_panos'].merge(
     df_pred_memo[['PID', "DIR", 'lane_num']].rename(columns={"DIR": 'MoveDir'}), on=['PID', "MoveDir"], how='left'
 ).set_index('PID')
@@ -152,13 +153,13 @@ def pids_filter(points, outlier_filter=True, mul_factor=2):
 
 def sort_pids_in_edge(edge_to_pid, gdf_panos, net, plot=False, filter=True):
     # TODO 针对有多个匹配方案的，选择距离最近的一个
-    # df_mapping = pd.DataFrame([edge_to_pid]).T.rename(columns={0: "pid"}).explode('pid')
     df_mapping = pd.DataFrame(edge_to_pid).stack()\
                                         .reset_index()\
                                         .rename(columns={'level_0': 'rid', 'level_1': 'eid', 0: 'pid'})\
                                         [['eid','rid', 'pid']]\
                                         .explode('pid')\
                                         .reset_index(drop=True)
+
     df_mapping = df_mapping.merge(gdf_panos[['MoveDir', 'lane_num']], left_on='pid', right_index=True)
     df_mapping.loc[:, 'offset'] = df_mapping.apply(
         lambda x: cal_relative_offset(gdf_panos.loc[x.pid].geometry, net.df_edges.loc[x.eid].geom_origin)[0] / net.df_edges.loc[x.eid].dist, 
@@ -177,6 +178,28 @@ def sort_pids_in_edge(edge_to_pid, gdf_panos, net, plot=False, filter=True):
 
 class DataFushion():
     def __init__(self, net, pano_data, logger=None, pano_dis_thred=25):
+        """[summary]
+
+        Args:
+            net ([type]): [description]
+            pano_data ([type]): [description]
+            logger ([type], optional): [description]. Defaults to None.
+            pano_dis_thred (int, optional): [description]. Defaults to 25.
+        """
+        # 'coverage_dict',
+        # 'df_eoi', 研究范围内的所有edge
+        # 'df_lane', 已经匹配的edge情况
+        # 'df_pid_2_edge',
+        # 'edge_to_pid',
+        # 'eid_visited',
+        # 'gdf_base',
+        # 'gdf_panos',
+        # 'gdf_roads',
+        # 'net',
+        # 'pid_to_edge',
+        # 'rid_visited',
+        # 'st_matching_dict',
+        # 'uf',
         self.net = net
         self.load_panos_data(pano_data)
         self.pano_dis_thred = pano_dis_thred
@@ -187,7 +210,6 @@ class DataFushion():
         self.eid_visited = set()
         self.rid_visited = set()
         self.st_matching_dict = {}
-        # self.matching_memo = gpd.GeoDataFrame(columns=['eid'])
         
         self.logger = LogHelper(log_name='fusion.log').make_logger(level=logbook.INFO) if logger is None else logger
 
@@ -298,16 +320,16 @@ class DataFushion():
             4: 'edge_start_with_signal'
         }
         edge = self.net.df_edges.loc[id]
-        if type(net.node[edge.e]['traffic_signals'])==str:
+        if type(self.net.node[edge.e]['traffic_signals'])==str:
             return 3
         
-        if type(net.node[edge.s]['traffic_signals'])==str:
+        if type(self.net.node[edge.s]['traffic_signals'])==str:
             return 4
 
-        if self.net.edge.get((edge.e, edge.s), 1000) > dis_thres:
+        if self.net.edge.get((edge.s, edge.e), 1000) > dis_thres:
             return 0
         
-        path = net.a_star(edge.e, edge.s)
+        path = self.net.a_star(edge.e, edge.s)
         if path is None or path['path'] is None:
             return 0
         
@@ -443,32 +465,7 @@ class DataFushion():
         Returns:
             [type]: [description]
         """
-        def _check_eid_visited(eid):
-            if eid in self.eid_visited:
-                self.logger.debug(f"{eid}, {rid}, eid had been visited")
-                return True
-            
-            ori_coverage = self.coverage_dict.get(eid, None) 
-            if ori_coverage is not None and ori_coverage['percentage'] > coverage_thred:
-                self.logger.info(f"{eid} had been matched, ori_coverage rate: {ori_coverage['percentage']:.3f}")
-                return True
-            
-            return False
-        
-        def _check_rid_visited(rid):
-            if rid in self.rid_visited:
-                self.logger.info(f"{eid}, {rid}, rid had been vistied")
-                return True
-            
-            return False
-        
-        def _check_traj(traj):
-            if traj is None:
-                self.logger.warning(f"{eid}, {rid} has no trajectory")
-                return False
-            
-            return True
-        
+
         def _update_edge_coverage_ratio(matching_res, rid, eid_new_visited=None, eids=[]):
             edge_related_new = net.df_edges[['eid']].merge(matching_res['path'], on=['eid'])
             if edge_related_new.query(f"eid in @eids").shape[0] == 0:
@@ -490,26 +487,14 @@ class DataFushion():
             traj_id = uf.father[rid]
             self.st_matching_dict[traj_id] = matching_res['path']
             map_pid_to_edge(traj_id, traj, matching_res['path'], self.pid_to_edge, self.edge_to_pid)
-            # self.matching_memo = pd.concat([self.matching_memo, matching_res['path']])
             
             return new_coverage
         
         while queue:
             eid_visited_new = set()
             _, eid, rid, traj = heapq.heappop(queue) 
-            # traj = uf.get_panos(rid, False)
-            ori_coverage = self.coverage_dict.get(eid, None) 
-
-            # if _check_eid_visited(eid):
-            #     break
-            # if _check_rid_visited(rid):
-            #     continue
-            # if not _check_traj(traj):
-            #     continue
-
-            ratio = ori_coverage['percentage'] if ori_coverage is not None else 0
-            log_info = f"{eid}({ratio:.2f}) {rid}"
-            # self.logger.info(f"{eid}({ratio:.2f}): {rid}")
+            ori_coverage = self.coverage_dict.get(eid, {}).get('percentage', 0)
+            log_info = f"{eid}({ori_coverage:.2f}) {rid}"
                 
             matching_res = st_matching(
                 traj, 
@@ -522,7 +507,7 @@ class DataFushion():
                 logger=None
             )
             new_coverage = _update_edge_coverage_ratio(matching_res, rid, eid_visited_new, eids)
-            if new_coverage is None or (ori_coverage is not None and new_coverage == ori_coverage['percentage']):
+            if new_coverage is None or new_coverage == ori_coverage:
                 self.logger.info(f'{log_info}, not related traj, visited: {eid_visited_new}')
                 continue
 
@@ -588,6 +573,11 @@ class DataFushion():
     # main
     def predict_area_prepare(self, clip_geom):
         self.uf, self.df_eoi = self.get_pano_topo_by_road(clip_geom=clip_geom)
+        
+        # self.df_eoi.loc['link'] = False
+        # expr = "road_type.str.contains('link')"
+        # idxs = self.df_eoi.query(expr, engine='python')
+        # self.df_eoi.loc[idxs, 'link'] = True
 
 
     def predict_area_start(self, lowest_road_level=6):
@@ -598,10 +588,105 @@ class DataFushion():
         self.df_pid_2_edge = sort_pids_in_edge(self.edge_to_pid, self.gdf_panos, self.net)
         self.df_lane = self._get_df_lane_nums()
         
-        return eoi
+        return eoi.merge(self.df_lane, on='eid', how='left').set_index('eid')
 
 
 #%%
+if __name__ == '__main__':
+    """ step 1: initiale """
+    geom = box(114.05059,22.53084, 114.05887,22.53590)
+    self = DataFushion(net=net, pano_data=pano_data)
+    self.predict_area_prepare(geom)
+
+
+    """ step 2: predict """
+    eoi = self.predict_area_start(lowest_road_level=5.5)
+    map_visualize(eoi)
+    self.upload()
+    # gdf_to_postgis(eoi.merge(self.df_lane, on='eid', how='left'), 'test_matching_all')
+
+
+    df = eoi.copy()
+
+#%%
+# TODO 找出所有没有识别的 车道
+
+def get_edge_pano_lane_lst(self):
+    df = self.df_pid_2_edge
+
+    df1 = pd.DataFrame(
+        df[~df.outlier]\
+            .groupby('eid')['lane_num']\
+            .apply(list)\
+    )
+    df1.loc[:, 'status'] = 1
+
+    df2 = pd.DataFrame(
+        df[df.outlier]\
+            .groupby('eid')['lane_num']\
+            .apply(list)\
+    )
+    df2.loc[:, 'status'] = 0
+
+    tmp = pd.concat([df1, df2])
+    
+    return tmp
+
+
+mathing_pano_lane = get_edge_pano_lane_lst(self)
+mathing_pano_lane.loc[28959]
+
+
+#%%
+# filter the unpredicted edge
+
+def process_link(df, plot=False):
+    expr = "(lane_num!=lane_num or lane_num > 2 ) and road_type.str.contains('link') "
+    idxs = df.query(expr, engine='python').index
+    df.loc[idxs, 'lane_num'] = 1
+    
+    if plot:
+        expr = "road_type.str.contains('link') "
+        df.query(expr, engine='python').fillna(-1).plot(column='lane_num', legend=True, categorical=True)
+    
+    return df
+
+
+df = process_link(df)
+
+df.lane_num.isna().sum()
+df[df.lane_num.isna()].edge_type.value_counts()
+df.query("lane_num!=lane_num and edge_type ==0 ").plot()
+
+df.drop(columns='geom_origin', inplace=True)
+
+gdf_to_postgis(df, 'test_matching_all')
+
+gdf_to_geojson(df, 'road_demo')
+
+#%%
+
+idxs = list(np.setdiff1d( df.index, self.df_lane.index))
+map_visualize( df.loc[idxs], scale=.1)
+
+df_miss = df.loc[idxs].sort_values(['road_level', 'name', 'eid', 'edge_type'])
+
+df_miss_link = df_miss.query("road_type.str.contains('link')", engine='python')
+# map_visualize(df_miss_link, scale=.1)
+
+
+# atts = [ 'rid', 'name', 's', 'e', 'order', 'road_type', 'dir', 'lanes', 'dist', 'edge_type', 'road_level']
+# df_miss.query("not road_type.str.contains('link')", engine='python')[atts]
+
+#%%
+# ! deal with the road type 0
+
+
+
+#%%
+#! deal with the multi_match
+
+
 # DEBUG
 def debug_one_edge_mutli_traj(self:DataFushion):
     # ! 优化针对不同的轨迹，匹配的结果分隔开的情景
@@ -630,70 +715,71 @@ def debug_one_edge_mutli_traj(self:DataFushion):
 
 
     # case: 一个路段对应多个匹配结果
+    
+    # 路段匹配的情况 dict
+    # 重复匹配的路段：[28806, 28937, 28959, 28960, 48504, 53549, 53550, 53553, 53555, 53568, 53569, 67786, 77386, 77391, 77392, 77401, 77409, 77411, 78383, 138316]
     self.edge_to_pid[53549]
     self.edge_to_pid[28959]
+    self.edge_to_pid[53550]
 
 
     return
 
 
+matching_count = self.df_pid_2_edge.groupby('eid').rid.nunique() > 1
+idx = matching_count[matching_count].index.to_list()
+
+print(f"重复匹配的路段：{idx}")
+
+self.net.df_edges.loc[idx].plot()
+
 
 #%%
-""" step 1: initiale """
-geom = box(114.05059,22.53084, 114.05887,22.53590)
-self = DataFushion(net=net, pano_data=pano_data)
-self.predict_area_prepare(geom)
+id = 53549
 
-#%%
-""" step 2: predict """
-eoi = self.predict_area_start(lowest_road_level=5)
-map_visualize(eoi)
-self.upload()
-# gdf_to_postgis(eoi.merge(self.df_lane, on='eid', how='left'), 'test_matching_all')
+def check_overlap(self, id, logger):
+    roots = list(self.edge_to_pid[id].keys())
 
+    lst = []
+    for key in self.edge_to_pid[id].keys():
+        tmp = self.st_matching_dict[key]
+        tmp.loc[:, 'root'] = key    
+        lst.append(tmp)
 
-# eoi = eoi[eoi.road_level <= 5]
-
-#%%
-# TODO 找出所有没有识别的 车道
-
-def get_edge_pano_lane(self):
-    df = self.df_pid_2_edge
-
-    df1 = pd.DataFrame(
-        df[~df.outlier]\
-            .groupby('eid')['lane_num']\
-            .apply(list)\
-    )
-    df1.loc[:, 'status'] = 1
-
-    df2 = pd.DataFrame(
-        df[df.outlier]\
-            .groupby('eid')['lane_num']\
-            .apply(list)\
-    )
-    df2.loc[:, 'status'] = 0
-
-    tmp = pd.concat([df1, df2])
+    tmp = pd.concat(lst).query(f'eid=={id}')
+    tmp.loc[:, 'interval'] = tmp.apply(self._breakpoint_to_interval, axis=1)
+    tmp.sort_values(['step'], inplace=True)
     
-    return tmp
+    # logger.info(f"\n{tmp[['eid', 'root', 'rid',  'step', 'interval']]}\n\n")
+
+    # return tmp[['eid', 'root', 'rid',  'step', 'interval']]
+    return tmp[['eid', 'root', 'rid',  'step', 'interval']].groupby(['eid', 'step'])[['step']].count()
 
 
-mathing_pano_lane = get_edge_pano_lane(self)
-mathing_pano_lane.loc[73666]
+lst = []
+
+check_ids = [28806, 28937, 28959, 28960, 48504, 53549, 53550, 53553, 53555, 53568, 53569, 67786, 77386, 77391, 77392, 77401, 77409, 77411, 78383, 138316]
+for i in check_ids:
+    lst.append(check_overlap(self, i, logger))
+
+tmp = pd.concat(lst).rename(columns={'step': 'count'}).reset_index()
+
+pd.pivot_table(tmp, values='count', index='eid', columns='step', aggfunc=np.sum).fillna('--')
+
+# 原则：贯穿的优先选择贯穿的；重复的优先选择靠近的；剩下的就以后再细分
 
 
-# filter the unpredicted edge
-idxs = list(np.setdiff1d( eoi.index, self.df_lane.index))
+# %%
 
-map_visualize( eoi.loc[idxs], scale=.1)
+def save_db():
+    tmp = eoi.query('lane_num==lane_num')
+    tmp.loc[:, 'lane_num'] = tmp.lane_num.astype(np.int)
 
-df_miss = eoi.loc[idxs].sort_values(['road_level', 'name', 'eid', 'edge_type'])
-
-df_miss_link = df_miss.query("road_type.str.contains('link')", engine='python')
-map_visualize(df_miss_link, scale=.1)
+    gdf_to_postgis(tmp, 'test_matching')
 
 
-atts = ['eid', 'rid', 'name', 's', 'e', 'order', 'road_type', 'dir', 'lanes', 'dist', 'edge_type', 'road_level']
-df_miss.query("not road_type.str.contains('link')", engine='python')[atts]
+gdf_to_postgis(df.query("lane_num!=lane_num").reset_index(), 'test_edge_type_0')
+
+
+gdf_to_postgis( net.df_edges.loc[check_ids] , 'test_check_overlap')
 

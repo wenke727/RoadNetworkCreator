@@ -1,21 +1,20 @@
 #%%
 import os
+import time 
+import json
+import urllib
+import random
+import numpy as np
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import Point, LineString, Polygon
-import urllib
-import json
-import coordTransform_py.CoordTransform_utils as ct
-import numpy as np
-import time 
 from tqdm import tqdm
+from shapely.geometry import Point, LineString, Polygon
+import coordTransform_py.CoordTransform_utils as ct
 
 from utils.geo_plot_helper import map_visualize
 from utils.utils import load_config
 from utils.coord.coord_transfer import bd_mc_to_coord
 from utils.log_helper import LogHelper, logbook
-
-import random
 
 
 config    = load_config()
@@ -25,7 +24,7 @@ input_dir = config['data']['input_dir']
 baidu_API_log = LogHelper(log_dir=config['data']['log_dir'], log_name='baidu_map.log').make_logger(level=logbook.INFO)
 
 
-def get_road_shp_by_search_API(road_name, sleep=False):
+def get_shp_by_name_with_search_API(road_name, sleep=False):
     """get road shape by Baidu searching API using the road name
 
     Args:
@@ -204,6 +203,7 @@ def fishenet(area, x_step = 0.05, y_step = 0.05, in_sys='wgs84', out_sys='bd09')
                                                  *ct.wgs84_to_gcj02(x.maxx, x.maxy)[::-1]],axis=1 )
         
     net.loc[:,'bbox']  = bbox
+
     return net
 
 
@@ -305,8 +305,10 @@ def get_roads_name_by_city(area="南山区"):
     
 #%%
 if __name__ == '__main__':
-    road_name = '福中四路'
-    df, _, _ = get_road_shp_by_search_API(road_name)
+    """ 按道路名获取线形 """
+    road_name = '南光高速'
+    df_, _, _ = get_shp_by_name_with_search_API(road_name)
+    map_visualize(df_)
 
 
     """" 获取深圳市的道路 """
@@ -321,7 +323,7 @@ if __name__ == '__main__':
     for name in tqdm(road_names):
         print(name)
         try:
-            get_road_shp_by_search_API(name, True)
+            get_shp_by_name_with_search_API(name, True)
         except:
             err.append(name)
             time.sleep(30)
@@ -337,22 +339,11 @@ if __name__ == '__main__':
     roads_futian.query(f"catalogID == 49").name_x.unique()
 
 
-#%%
-futian_area = gpd.read_file('../cache/福田路网区域.geojson').iloc[0].geometry
+    #%%
+    futian_area = gpd.read_file('../cache/福田路网区域.geojson').iloc[0].geometry
 
-roads_futian = gpd.clip(roads, futian_area)
+    roads_futian = gpd.clip(roads, futian_area)
 
-map_visualize(roads_futian, scale=.05)
+    map_visualize(roads_futian, scale=.05)
 
-#%%
-road_name = '滨河大道'
-df_, _, _ = get_road_shp_by_search_API(road_name)
-
-map_visualize(df_)
-
-# %%
-road_name = '滨河大道辅道'
-df_, _, _ = get_road_shp_by_search_API(road_name)
-
-map_visualize(df_)
-# %%
+    #%%

@@ -3,31 +3,20 @@ import io
 import os
 import time
 import random
+import logbook
 import requests
 import pandas as pd
 import multiprocessing
 import geopandas as gpd
 from tqdm import tqdm
-import matplotlib.pyplot as plt
-from PIL import Image
+from utils.log_helper import LogHelper
 from utils.http_helper import get_proxy
 from utils.minio_helper import MinioHelper
-from setting import PANO_FOLFER, LOG_FOLDER
+from setting import PANO_FOLFER
 from utils.geo_plot_helper import map_visualize
-from utils.parallel_helper import parallel_process
 
 minio_helper = MinioHelper()
 
-from loguru import logger
-logger.remove()
-logger.add(
-    os.path.join(LOG_FOLDER, f"pano_img_{time.strftime('%Y-%m-%d', time.localtime())}.log"), 
-    enqueue=True,  
-    backtrace=True, 
-    diagnose=True,
-    level="INFO",
-    mode='w'
-)
 
 #%%
 
@@ -81,12 +70,12 @@ def traverse_panos_by_rid(rid, DB_panos, log=None, all=False):
     return res, df_pids
 
 
-""" new API 201010"""
+""" new API """
 def drop_pano_file(lst, folder=PANO_FOLFER):
     if isinstance(lst, gpd.GeoDataFrame):
         lst = lst.apply(lambda x: f"{x.PID}_{x.DIR}.jpg", axis=1).values.tolist()
     
-    for i in tqdm(lst, desc="Remove existing files"):
+    for i in tqdm(lst):
         fn = os.path.join(folder, i)
         if not os.path.exists(fn):
             continue
@@ -95,7 +84,7 @@ def drop_pano_file(lst, folder=PANO_FOLFER):
     pass
 
 
-def fetch_pano_img(pid, heading, rewrite=False, path=None, proxies=True, logger=logger):
+def fetch_pano_img(pid, heading, path=None, sleep=True, proxy='pool', logger=None,):
     """get static image from Baidu View with `pano id`
 
     Args:
@@ -113,7 +102,7 @@ def fetch_pano_img(pid, heading, rewrite=False, path=None, proxies=True, logger=
     else:
         path = path.split('/')[-1]
     
-    if not rewrite and minio_helper.file_exist(path): 
+    if minio_helper.file_exist(path): 
         return path
 
     def __save(file):
@@ -122,21 +111,26 @@ def fetch_pano_img(pid, heading, rewrite=False, path=None, proxies=True, logger=
         f.flush()
         f.close()
     
-    url = f"https://mapsv0.bdimg.com/?qt=pr3d&fovy=55&quality=100&panoid={pid}&heading={heading}&pitch=-10&width=1024&height=576"
+    url = f"https://mapsv0.bdimg.com/?qt=pr3d&fovy=88&quality=100&panoid={pid}&heading={heading}&pitch=0&width=1024&height=576"
     try:
-        file = requests.get(url, timeout=60, proxies={'http': get_proxy()} if proxies else None  )
+        if proxy is None:
+            file = requests.get( url, timeout=60 )
+        else:
+            file = requests.get( url, timeout=60, proxies={'http': get_proxy()}  )
             
         if logger is not None: 
             logger.info( f"{pid}: {url}")
         
         if False: 
             __save(file)
+        # ret_dict = minio_helper.upload_file(file_path=path, object_name=path)
+        # if os.path.exists(path):  os.remove(path) 
         
         buf = io.BytesIO(file.content)
         ret_dict = minio_helper.upload_file(file=buf, object_name=path)
         path = ret_dict['public_url']
 
-        if not proxies: 
+        if sleep: 
             time.sleep( random.triangular(0.1, 3, 10) )
         
         return path
@@ -149,7 +143,7 @@ def fetch_pano_img(pid, heading, rewrite=False, path=None, proxies=True, logger=
     return None
 
 
-def fetch_pano_img_parallel(lst, heading_att='DIR', rewrite=True, n_jobs=32, with_bar=True, bar_describe="Crawl panos"):
+def fetch_pano_img_parallel(lst, heading_att='DIR', n_jobs=32, with_bar=True, bar_describe="Crawl panos"):
     if lst is None:
         return None
     
@@ -166,7 +160,7 @@ def fetch_pano_img_parallel(lst, heading_att='DIR', rewrite=True, n_jobs=32, wit
     pool = multiprocessing.Pool(n_jobs)
     result = []
     for item in lst:
-        result.append( pool.apply_async(fetch_pano_img, (item['pid'], item['heading'], rewrite, ), callback=update) )
+        result.append( pool.apply_async(fetch_pano_img, (item['pid'], item['heading'],), callback=update) )
     pool.close()
     pool.join() 
 
@@ -175,82 +169,10 @@ def fetch_pano_img_parallel(lst, heading_att='DIR', rewrite=True, n_jobs=32, wit
     return result
 
 
-""" new API 210114"""
-def pano_img_api(pid, heading, fovy=56, pitch=-10, quality=100):
-    url = f"https://mapsv0.bdimg.com/?qt=pr3d&quality={quality}&panoid={pid}&pitch={pitch}&fovy={fovy}&width=1024&height=576&heading={heading}"
-    
-    return url
-    
-
-def _request_helper(url, proxies=True, timeout=10):
-    i = 0
-    while i < 3:   
-        try:
-            proxy = {'http': get_proxy()} if proxies else None
-            respond = requests.get(url, timeout=timeout, proxies=proxy)
-            
-            if respond.status_code == 200:
-                logger.info(f'{url}')
-                return respond
-
-            logger.warning( f"{url}, status_code: {respond.status_code}")
-            continue
-
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"{url}, RequestException: ", e)
-
-        i += 1
-        if not proxies:
-            time.sleep(random.randint(1,10))
-    
-    logger.error(f"{url}, try 3 times but failed")
-    
-    return None
-
-
-def get_pano_img(pid, heading, overwrite=True, plot=False):
-    def _plot():
-        plt.imshow(Image.open(path))
-        plt.axis('off')
-        
-    url = pano_img_api(pid, heading)
-
-    # folder = os.path.join(PANO_FOLFER, {heading})
-    # if not os.path.exists(folder):
-    #     os.makedirs(folder)
-
-    fn = f"{pid}_{heading}.jpg"
-    path = os.path.join(PANO_FOLFER, f"{pid}_{heading}.jpg")
-
-    if  not overwrite and minio_helper.file_exist(fn):
-        if plot: _plot()
-        return path
-
-    res = _request_helper(url)
-    if res is not None:
-        buf = io.BytesIO(res.content)
-        ret_dict = minio_helper.upload_file(file=buf, object_name=fn)
-        assert 'public_url' in ret_dict, f"{pid}, {heading}, {ret_dict}"
-
-        if plot: 
-            _plot()
-
-        return ret_dict['public_url'] if 'public_url' in ret_dict else None
-
-    return None
-
-
-def get_pano_img_parallel(lst, overwrite):
-    # lst = [("01005700001404191412515725W", 190), ("01005700001404191412515725W", 191)]
-    params = [(i, d, overwrite) for i, d in lst]
-    res = parallel_process(get_pano_img, params, True)
-    
-    return res
-
-
 #%%
 
 if __name__ == "__main__":
+    pano_API_log = LogHelper(log_dir="../log", log_name='panos_base.log').make_logger(level=logbook.INFO)
 
     """" check for new API """
     pid = '01005700001312021447154435T'
@@ -263,15 +185,11 @@ if __name__ == "__main__":
 
     #%%
     # ! 更新记录，删除已有文件，预测图片
-    panos = gpd.read_file("./nanguang_traj0.geojson")
+    panos = gpd.read_file("./jintianroad_north.geojson")
 
-    lst = panos[['PID', "MoveDir"]].values 
-    res = get_pano_img_parallel(lst, overwrite=True)
-    
-    
     # delete exist imgs
-    # drop_pano_file(panos.query("DIR != MoveDir"))
+    drop_pano_file(panos.query("DIR != MoveDir"))
 
     # download the new imgs
-    # res = fetch_pano_img_parallel(panos, heading_att = 'MoveDir')
+    res = fetch_pano_img_parallel(panos, heading_att = 'MoveDir')
 

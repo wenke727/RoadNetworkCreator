@@ -7,7 +7,7 @@ from shapely.geometry import point
 
 sys.path.append("/home/pcl/traffic/RoadNetworkCreator_by_View/src")
 from pano_base import query_pano
-from pano_img import get_staticimage, traverse_panos_by_rid, PANO_log, pano_dir
+from pano_img import fetch_pano_img, traverse_panos_by_rid, PANO_log, pano_dir
 from utils.coord.coord_transfer import wgs_to_bd_mc, bd_coord_to_mc
 
 
@@ -36,7 +36,7 @@ def get_pano_img_by_coord(lon, lat, folder='./shanghai', coord='wgs'):
     pano = panos.iloc[id]
     # fn = f"{pano_dir}/{pano.RID}_{pano.Order:02d}_{pano.PID}_{pano.DIR}.jpg"
     fn = f"{folder}/{pano.RID}_{pano.Order:02d}_{pano.PID}_{pano.DIR}.jpg"
-    fn = get_staticimage( pano.PID, pano.DIR, fn, logger=PANO_log )
+    fn = fetch_pano_img( pano.PID, pano.DIR, fn, logger=PANO_log )
     
     return fn
 
