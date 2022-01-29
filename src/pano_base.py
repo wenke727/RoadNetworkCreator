@@ -22,21 +22,21 @@ import matplotlib.pyplot as plt
 from shapely.geometry import Point, LineString, box
 
 
+from baidu_map import get_shp_by_name_with_search_API
+from panos_topo import combine_rids, Pano_UnionFind
+from pano_img import get_pano_img_parallel
+
 from utils.pickle_helper import PickleSaver
 from utils.minio_helper import MinioHelper
 from db.db_process import gdf_to_geojson, load_postgis, gdf_to_postgis
 from utils.http_helper import get_proxy
 from utils.coord.coord_transfer import bd_mc_to_wgs, wgs_to_bd_mc
 from utils.geo_plot_helper import map_visualize
-from baidu_map import get_shp_by_name_with_search_API
 from utils.parallel_helper import parallel_process
 from utils.geo_helper import geom_buffer
-from pano_img import fetch_pano_img_parallel
-from panos_topo import combine_rids, Pano_UnionFind
-from pano_img import get_pano_img_parallel
 
 
-from utils.azimuth_helper import azimuth_diff, azimuth_cos_similarity
+from utils.azimuth_helper import azimuth_diff
 from setting import FT_BBOX, PANO_FOLFER, SZ_BBOX, GBA_BBOX, PCL_BBOX, LXD_BBOX, CACHE_FOLDER, SZU_BBOX, LOG_FOLDER, link_type_no_dict
 
 import warnings
@@ -219,28 +219,34 @@ def fetch_helper(node, geofence, memo={}):
     return res, memo
 
 
-def cp_imgs_to_dataset(road_name, df_trajs, traj_id, base_folder="/home/pcl/cv/LSTR/data/train", overwrite=False):
+def cp_imgs_to_dataset(road_name, df_trajs, traj_id, base_folder="/home/pcl/cv/LSTR/data/train", overwrite=False, sample=200):
+    import random
+    random.seed(42)
     road_name_py = pinyin.get(road_name, "_", format='strip')
     road_name_py = "".join([i[0].upper()+i[1:] for i in road_name_py.split("_")])
     folder = os.path.join(base_folder, road_name_py)
 
     df_traj = df_trajs.iloc[traj_id].pids_df
     
-    ax = map_visualize(df_traj)
-    plt.savefig(f"{base_folder}/{road_name_py}_{traj_id:02d}.jpg")
+    # ax = map_visualize(df_traj)
+    # plt.savefig(f"{base_folder}/{road_name_py}_{traj_id:02d}.jpg")
     
     res = self.parallel_fetch_img(df_traj, overwrite)
-    res.sort()
-    # gdf_to_geojson(df_traj, f'{road_name_py}_{traj_id}')
+    size=len(res)
+    gdf_to_geojson(df_traj, os.path.join(base_folder, f'{road_name_py}_{traj_id}'))
 
     if not os.path.exists(folder):
         os.makedirs(folder)
 
     for idx, img_fn in tqdm(enumerate(res)):
+        if random.uniform(0, 1) > sample/size:
+            continue
         if img_fn is None:
             continue
+        
         img_fn = img_fn.split("/")[-1]
-        copyfile( os.path.join(PANO_FOLFER, img_fn), os.path.join(folder, f"{traj_id:02d}_{idx:04d}_{img_fn}") )
+        # {traj_id:02d}_
+        copyfile(os.path.join(PANO_FOLFER, img_fn), os.path.join(folder, f"{idx:04d}_{img_fn}") )
     
     return 
 
@@ -289,10 +295,11 @@ class OSMModule():
 
 class PanoCrawler(OSMModule):
     # TODO: 1) save and load; 
-    def __init__(self, name, bbox=None, geofence:shapely.geometry=None, n_jobs=16, load_node=True):
+    def __init__(self, name, bbox=None, geofence:shapely.geometry=None, n_jobs=32, load_node=True):
         super().__init__(bbox=bbox, geofence=geofence)
-        self.osm_node = self.osm_node_buffer(10)
+
         self.name = name
+        self.osm_node = self.osm_node_buffer(10)
         self.minio_helper = MinioHelper()
 
         # http related
@@ -319,14 +326,14 @@ class PanoCrawler(OSMModule):
     def load_pano_node(self):
         print('loading pano data:')
         gdf = load_postgis(self.pano_node_pg, geom_wkt=self.geofence.to_wkt())
-
-        lst_atts = ['ImgLayer', 'Links', 'SwitchID', 'TimeLine', 'Roads',] 
-        for att in tqdm(lst_atts, "Transfer"):
-            gdf.loc[:, att] = gdf[att].apply(eval)
         
         lst_atts = ['MoveDir']
         for att in lst_atts:
             gdf.loc[:, att] = gdf[att].astype(np.float)
+        
+        lst_atts = ['ImgLayer', 'Links', 'SwitchID', 'TimeLine', 'Roads',] 
+        for att in tqdm(lst_atts, "Transfer"):
+            gdf.loc[:, att] = gdf[att].apply(eval)
         
         gdf.index = gdf.ID
         
@@ -334,6 +341,7 @@ class PanoCrawler(OSMModule):
 
     
     def crawl(self, overwrite=False):
+        # TODO
         fn = os.path.join(CACHE_FOLDER, f"pano_dict_{self.name}.pkl")
         if os.path.exists(fn) and not overwrite:
             self.pano_dict = saver.read(fn)
@@ -350,9 +358,9 @@ class PanoCrawler(OSMModule):
         
         while queue:
             node = queue.popleft()
+            ori_size = len(self.pano_dict)
             print(f"pano nums: {len(self.pano_dict)}, queue length: {len(queue)}, cur node: {node}")
             
-            ori_size = len(self.pano_dict)
             res = query_pano(*node)
             if res is None:
                 continue
@@ -368,6 +376,7 @@ class PanoCrawler(OSMModule):
             self.gdf_pano_node = self.pano_dict_to_gdf(self.pano_dict)
             self.gdf_pano_link = self.extract_gdf_roads_from_key_pano(self.gdf_pano_node)
             lst = self._get_unvisited_point(self.gdf_pano_link)
+            # FIXME
             lst = [i for i in lst if i not in self.coord_2_pid]
 
             if queue_filter:
@@ -384,7 +393,7 @@ class PanoCrawler(OSMModule):
         
         return
 
-
+    # TODO
     def _crawl_by_point(self, ):
         # TODO
         pass
@@ -444,7 +453,7 @@ class PanoCrawler(OSMModule):
         
         return res
 
-
+    # TODO
     def _load_pg_pano(self):
         pass 
 
@@ -666,7 +675,7 @@ class PanoCrawler(OSMModule):
         return self.gdf_panos
 
 
-    def parallel_fetch_img(self, panos=None, overwrite=True):
+    def parallel_fetch_img(self, panos=None, overwrite=False):
         panos = self.panos if panos is None else panos
         res = get_pano_img_parallel(panos[['PID', "MoveDir"]].values, overwrite=overwrite)
 
@@ -679,6 +688,28 @@ class PanoCrawler(OSMModule):
 
         return self.df_trajs
 
+
+
+def pano_base_main(project_name, geom=None, bbox=None, rewrite=False, logger=None):
+    fn = os.path.join(CACHE_FOLDER, f"pano_dict_{project_name}.pkl")
+    if os.path.exists(fn) and not rewrite:
+        pano_dict = saver.read(fn)
+    else:
+        pano_dict = crawl_panos_by_area(bbox=bbox, geom=geom, logger=logger)
+        saver.save(pano_dict, fn)
+    
+    gdf_base = pano_dict_to_gdf(pano_dict)
+    # gdf_roads_ = extract_gdf_roads_from_key_pano(pano_dict)
+    gdf_panos = extract_gdf_panos_from_key_pano(pano_dict, update_dir=True)
+    gdf_roads = extract_gdf_roads(gdf_panos)
+
+    res = { 'pano_dict': pano_dict,
+            'gdf_base': gdf_base,
+            'gdf_roads': gdf_roads,
+            'gdf_panos': gdf_panos,
+        }
+
+    return res
 
 
 #%%
@@ -701,7 +732,7 @@ if __name__ == '__main__':
     self.combine_rids()
     self.panos 
 
-    cp_imgs_to_dataset(road_name, self.df_trajs, 2)        
+    cp_imgs_to_dataset(road_name, self.df_trajs, 0, base_folder='/home/pcl/dataset/MultiLaneDataset/motorway')
     # self.upload_pano_node()
 
     # gdf_to_postgis(self.panos, 'test_0111_panos')

@@ -11,7 +11,7 @@ import geopandas as gpd
 from scipy import stats
 from shapely.geometry import point, LineString, box
 
-from pano_base import pano_base_main
+from pano_base import PanoCrawler
 from pano_img import fetch_pano_img_parallel
 from panos_topo import combine_rids, Pano_UnionFind
 from pano_predict import pred_trajectory, PRED_MEMO, update_unpredict_panos
@@ -42,12 +42,13 @@ net = load_net_helper(bbox=SZ_BBOX, cache_folder='../../MatchGPS2OSM/cache')
 
 """step 2: dowload pano topo"""
 futian_area = gpd.read_file('../cache/福田路网区域.geojson').iloc[0].geometry
-pano_data = pano_base_main(project_name = 'futian', geofence=futian_area)
+pano_data = PanoCrawler(name = 'futian', geofence=futian_area)
+pano_data._crawl_by_area()
 
 """step 3: download pano imgs and predict"""
 # pano_img_res = get_staticimage_parallel(gdf_panos, 50, True)
 # panos预测所有的情况 -> drop_pano_file、get_staticimage_parallel、lstr数据库中更新
-pano_data['gdf_panos'] = pano_data['gdf_panos'].merge(
+panos = pano_data.panos.merge(
     df_pred_memo[['PID', "DIR", 'lane_num']].rename(columns={"DIR": 'MoveDir'}), on=['PID', "MoveDir"], how='left'
 ).set_index('PID')
 
@@ -215,9 +216,9 @@ class DataFushion():
 
     
     def load_panos_data(self, pano_data):
-        self.gdf_base  = pano_data['gdf_base']
-        self.gdf_roads = pano_data['gdf_roads']
-        self.gdf_panos = pano_data['gdf_panos']
+        self.gdf_base  = pano_data.gdf_pano_node
+        self.gdf_roads = pano_data.gdf_pano_link
+        self.gdf_panos = pano_data.panos
 
     
     """helper"""
@@ -369,7 +370,8 @@ class DataFushion():
         eoi.loc[:, 'edge_type'] = eoi.eid.apply(self.identify_edge_type)
 
         pids = np.unique(roi.src.tolist() + roi.dst.tolist()).tolist()
-        uf, df_topo, df_topo_prev = combine_rids(self.gdf_base.loc[pids], roi, self.gdf_panos, plot=False, logger=self.logger)
+        # FIXME `self.gdf_base.loc[pids]` Passing list-likes to .loc or [] with any missing labels is no longer supported.
+        uf, df_topo, df_topo_prev = combine_rids(self.gdf_base.query('index in @pids'), roi, self.gdf_panos, plot=False, logger=self.logger)
         
         if with_level:
             eoi.loc[:, 'road_level'] = eoi.road_type.apply(lambda x: link_type_no_dict[x] if x in link_type_no_dict else 50)
@@ -453,7 +455,7 @@ class DataFushion():
             self.matching_edge_helper(queue, uf, eids_lst, coverage_thred=coverage_thred)
 
 
-    def matching_edge_helper(self, queue, uf, eids=[], coverage_thred=.7):
+    def matching_edge_helper(self, queue, uf, eids=[], coverage_thred=.7, save_folder="../debug/matching"):
         """[summary]
 
         Args:
@@ -490,6 +492,9 @@ class DataFushion():
             
             return new_coverage
         
+        if not os.path.exists(save_folder):
+            os.makedirs(save_folder)
+        
         while queue:
             eid_visited_new = set()
             _, eid, rid, traj = heapq.heappop(queue) 
@@ -502,7 +507,7 @@ class DataFushion():
                 name=str(id), 
                 plot=True, 
                 satellite=True, 
-                save_fn=os.path.join( "../debug/matching", f"{eid}_{rid}.jpg"), 
+                save_fn=os.path.join( save_folder, f"{eid}_{rid}.jpg"), 
                 top_k=5, 
                 logger=None
             )

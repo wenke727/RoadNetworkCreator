@@ -10,7 +10,6 @@ import geopandas as gpd
 from scipy import stats
 from shapely.geometry import point, LineString, box
 
-from pano_base import pano_base_main
 from pano_img import fetch_pano_img_parallel
 from panos_topo import combine_rids, Pano_UnionFind
 from pano_predict import pred_trajectory, PRED_MEMO, update_unpredict_panos

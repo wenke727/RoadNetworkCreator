@@ -243,7 +243,7 @@ def get_pano_img(pid, heading, overwrite=True, plot=False):
 def get_pano_img_parallel(lst, overwrite):
     # lst = [("01005700001404191412515725W", 190), ("01005700001404191412515725W", 191)]
     params = [(i, d, overwrite) for i, d in lst]
-    res = parallel_process(get_pano_img, params, True)
+    res = parallel_process(get_pano_img, params, True, desc="Parallel fetching imgs")
     
     return res
 

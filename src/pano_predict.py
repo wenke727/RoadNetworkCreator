@@ -27,20 +27,6 @@ warnings.filterwarnings('ignore')
 
 
 #%%
-# 获取基础的数据
-def get_panos_imgs_by_bbox(bbox=[113.92348,22.57034, 113.94372,22.5855], vis=True, with_folder=False):
-    """给定一个区域，获取所有的panos
-
-    Args:
-        bbox (list, optional): [description]. Defaults to [113.92348,22.57034, 113.94372,22.5855].
-        vis (bool, optional): [description]. Defaults to True.
-        with_folder (bool, optional): [description]. Defaults to False.
-
-    Returns:
-        [type]: [description]
-    """
-    pass
-
 
 # 绘图相关
 def plot_pano_and_its_view(pid, DB_panos, DB_roads, road=None,  heading=None):
